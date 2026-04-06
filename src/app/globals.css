@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f9fafb;
+    --bg-card: #ffffff;
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --border: #e5e7eb;
+    --cobalt: #0047AB;
+  }
+
+  .dark {
+    --bg-primary: #0a0a0f;
+    --bg-secondary: #111827;
+    --bg-card: #1f2937;
+    --text-primary: #f9fafb;
+    --text-secondary: #9ca3af;
+    --border: #374151;
+    --cobalt: #3B82F6;
+  }
+
+  body {
+    @apply bg-white dark:bg-lpr-black text-gray-900 dark:text-gray-100 min-h-screen;
+    background-image: 
+      radial-gradient(ellipse at top, rgba(0, 71, 171, 0.08) 0%, transparent 60%);
+  }
+
+  .dark body {
+    background-image: 
+      radial-gradient(ellipse at top, rgba(0, 71, 171, 0.15) 0%, transparent 60%);
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white dark:bg-lpr-card border border-gray-200 dark:border-lpr-border rounded-2xl p-6 shadow-sm;
+  }
+
+  .btn-primary {
+    @apply bg-cobalt-500 hover:bg-cobalt-600 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-semibold px-6 py-3 rounded-xl transition-all duration-200;
+  }
+
+  .input {
+    @apply w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cobalt-500 transition-all;
+  }
+
+  .label {
+    @apply text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-cobalt-500/40 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-cobalt-500/70; }
+
+  /* DBZ power level animation */
+  .power-up {
+    animation: powerUp 0.5s ease-out;
+  }
+
+  @keyframes powerUp {
+    0% { transform: scale(1); filter: brightness(1); }
+    50% { transform: scale(1.05); filter: brightness(1.5); }
+    100% { transform: scale(1); filter: brightness(1); }
+  }
+}
