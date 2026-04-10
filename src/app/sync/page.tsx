@@ -16,7 +16,6 @@ export default function SyncPage() {
   const [platform, setPlatform] = useState<'ios' | 'android' | 'unknown'>('unknown')
   const [manualSteps, setManualSteps] = useState('')
   const [todayLog, setTodayLog] = useState<any>(null)
-  const [healthConnectAvailable, setHealthConnectAvailable] = useState(false)
 
   useEffect(() => {
     const init = async () => {
@@ -25,19 +24,13 @@ export default function SyncPage() {
       setUser(user)
       const ua = navigator.userAgent
       if (/iPhone|iPad|iPod/.test(ua)) setPlatform('ios')
-      else if (/Android/.test(ua)) { setPlatform('android'); checkHealthConnectAvailability() }
+      else if (/Android/.test(ua)) setPlatform('android')
       const today = new Date().toISOString().split('T')[0]
       const { data } = await supabase.from('step_logs').select('*').eq('user_id', user.id).eq('date', today).single()
       if (data) { setTodayLog(data); setLastSync(data.created_at) }
     }
     init()
   }, [router])
-
-  const checkHealthConnectAvailability = () => {
-    const ua = navigator.userAgent
-    const m = ua.match(/Android (\d+)/)
-    if (m && parseInt(m[1]) >= 9) setHealthConnectAvailable(true)
-  }
 
   const syncAppleHealth = async () => {
     setSyncing(true); setSyncingSource('apple_health')
@@ -69,12 +62,46 @@ export default function SyncPage() {
   const syncSamsungHealth = async () => {
     setSyncing(true); setSyncingSource('samsung_health')
     try {
-      const response = await fetch('/api/sync/health-connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id }) })
-      const data = await response.json()
-      if (response.ok && data.steps !== undefined) await saveSteps(data.steps, 'samsung_health')
-      else if (data.error === 'not_connected') toast('Open Samsung Health > Settings > Health Connect > Allow All, then try again.', { duration: 8000 })
-      else toast.error(data.message || 'Could not sync Samsung Health')
-    } catch { toast.error('Could not connect to Samsung Health') }
+      // Health Connect Web API - reads directly from Health Connect on the Android device
+      if (!(navigator as any).health) {
+        toast.error('Health Connect not available on this device. Make sure you have Android 14+ or the Health Connect app installed.')
+        setSyncing(false); setSyncingSource(null); return
+      }
+
+      const health = (navigator as any).health
+
+      // Request permission to read steps
+      const permissions = await health.requestPermission([
+        { name: 'steps', access: 'read' }
+      ])
+
+      if (!permissions || permissions.length === 0) {
+        toast.error('Permission denied. Please allow step access in Health Connect.')
+        setSyncing(false); setSyncingSource(null); return
+      }
+
+      // Read today's steps
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const tomorrow = new Date(today)
+      tomorrow.setDate(tomorrow.getDate() + 1)
+
+      const records = await health.query({
+        type: 'steps',
+        startTime: today.toISOString(),
+        endTime: tomorrow.toISOString(),
+      })
+
+      const totalSteps = records.reduce((sum: number, r: any) => sum + (r.count || r.steps || 0), 0)
+      await saveSteps(totalSteps, 'samsung_health')
+
+    } catch (err: any) {
+      if (err?.name === 'SecurityError' || err?.message?.includes('permission')) {
+        toast.error('Please open Samsung Health > Settings > Health Connect > Allow All, then try again.')
+      } else {
+        toast.error('Could not read Samsung Health data. Make sure Health Connect is set up.')
+      }
+    }
     setSyncing(false); setSyncingSource(null)
   }
 
