@@ -4,123 +4,64 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
-import { Smartphone, Activity, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
+import { Activity, RefreshCw, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function SyncPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [syncingSource, setSyncingSource] = useState<string | null>(null)
   const [lastSync, setLastSync] = useState<string | null>(null)
-  const [platform, setPlatform] = useState<'ios' | 'android' | 'unknown'>('unknown')
-  const [manualSteps, setManualSteps] = useState('')
   const [todayLog, setTodayLog] = useState<any>(null)
+  const [stravaConnected, setStravaConnected] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
       setUser(user)
-      const ua = navigator.userAgent
-      if (/iPhone|iPad|iPod/.test(ua)) setPlatform('ios')
-      else if (/Android/.test(ua)) setPlatform('android')
+
       const today = new Date().toISOString().split('T')[0]
-      const { data } = await supabase.from('step_logs').select('*').eq('user_id', user.id).eq('date', today).single()
-      if (data) { setTodayLog(data); setLastSync(data.created_at) }
+      const { data: log } = await supabase.from('step_logs').select('*').eq('user_id', user.id).eq('date', today).single()
+      if (log) { setTodayLog(log); setLastSync(log.created_at) }
+
+      const { data: profile } = await supabase.from('profiles').select('strava_connected').eq('id', user.id).single()
+      if (profile?.strava_connected) setStravaConnected(true)
     }
     init()
   }, [router])
 
-  const syncAppleHealth = async () => {
-    setSyncing(true); setSyncingSource('apple_health')
-    try {
-      if ('health' in navigator) {
-        toast('Requesting Apple Health access...')
-        const health = (navigator as any).health
-        const result = await health.query({ startDate: new Date(Date.now() - 7*24*60*60*1000), endDate: new Date(), type: 'steps' })
-        await saveSteps(result.totalSteps || 0, 'apple_health')
-      } else {
-        toast('Please use the iOS Shortcuts app to sync — see instructions below', { duration: 6000 })
-        setSyncing(false); setSyncingSource(null); return
-      }
-    } catch { toast.error('Could not access Apple Health. Please check permissions.') }
-    setSyncing(false); setSyncingSource(null)
+  const connectStrava = () => {
+    const params = new URLSearchParams({
+      client_id: process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID || '',
+      redirect_uri: `${window.location.origin}/api/auth/strava/callback`,
+      response_type: 'code',
+      scope: 'activity:read_all',
+    })
+    window.location.href = `https://www.strava.com/oauth/authorize?${params}`
   }
 
-  const syncGoogleFit = async () => {
-    setSyncing(true); setSyncingSource('google_fit')
+  const syncStrava = async () => {
+    setSyncing(true)
     try {
-      const response = await fetch('/api/sync/google-fit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: user.id }) })
-      const data = await response.json()
-      if (data.steps !== undefined) await saveSteps(data.steps, 'google_fit')
-      else toast('Connect Google Fit in settings first')
-    } catch { toast.error('Could not sync Google Fit') }
-    setSyncing(false); setSyncingSource(null)
-  }
-
-  const syncSamsungHealth = async () => {
-    setSyncing(true); setSyncingSource('samsung_health')
-    try {
-      // Health Connect Web API - reads directly from Health Connect on the Android device
-      if (!(navigator as any).health) {
-        toast.error('Health Connect not available on this device. Make sure you have Android 14+ or the Health Connect app installed.')
-        setSyncing(false); setSyncingSource(null); return
-      }
-
-      const health = (navigator as any).health
-
-      // Request permission to read steps
-      const permissions = await health.requestPermission([
-        { name: 'steps', access: 'read' }
-      ])
-
-      if (!permissions || permissions.length === 0) {
-        toast.error('Permission denied. Please allow step access in Health Connect.')
-        setSyncing(false); setSyncingSource(null); return
-      }
-
-      // Read today's steps
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      const tomorrow = new Date(today)
-      tomorrow.setDate(tomorrow.getDate() + 1)
-
-      const records = await health.query({
-        type: 'steps',
-        startTime: today.toISOString(),
-        endTime: tomorrow.toISOString(),
+      const response = await fetch('/api/sync/strava', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
       })
-
-      const totalSteps = records.reduce((sum: number, r: any) => sum + (r.count || r.steps || 0), 0)
-      await saveSteps(totalSteps, 'samsung_health')
-
-    } catch (err: any) {
-      if (err?.name === 'SecurityError' || err?.message?.includes('permission')) {
-        toast.error('Please open Samsung Health > Settings > Health Connect > Allow All, then try again.')
+      const data = await response.json()
+      if (data.steps !== undefined) {
+        toast.success(`✅ Synced ${data.steps.toLocaleString()} steps from Strava!`)
+        setTodayLog({ steps: data.steps, source: 'strava' })
+        setLastSync(new Date().toISOString())
       } else {
-        toast.error('Could not read Samsung Health data. Make sure Health Connect is set up.')
+        toast.error(data.message || 'Could not sync from Strava')
       }
+    } catch {
+      toast.error('Could not connect to Strava')
     }
-    setSyncing(false); setSyncingSource(null)
+    setSyncing(false)
   }
-
-  const saveSteps = async (steps: number, source: string) => {
-    if (!user) return
-    const today = new Date().toISOString().split('T')[0]
-    const { error } = await supabase.from('step_logs').upsert({ user_id: user.id, steps, date: today, source }, { onConflict: 'user_id,date' })
-    if (!error) { toast.success(`✅ Synced ${steps.toLocaleString()} steps!`); setLastSync(new Date().toISOString()); setTodayLog({ steps, source }) }
-    else toast.error('Failed to save steps')
-  }
-
-  const handleManualSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const steps = parseInt(manualSteps)
-    if (isNaN(steps) || steps < 0) { toast.error('Invalid step count'); return }
-    await saveSteps(steps, 'manual'); setManualSteps('')
-  }
-
-  const isSyncing = (source: string) => syncing && syncingSource === source
 
   return (
     <div className="min-h-screen bg-white dark:bg-lpr-black px-4 py-8">
@@ -129,6 +70,7 @@ export default function SyncPage() {
           <button onClick={() => router.push('/dashboard')} className="text-cobalt-500 hover:text-cobalt-400">← Back</button>
           <h1 className="text-xl font-bold dark:text-white">Sync Steps</h1>
         </div>
+
         {todayLog && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card bg-green-500/10 border-green-500/30">
             <div className="flex items-center gap-3">
@@ -140,76 +82,44 @@ export default function SyncPage() {
             </div>
           </motion.div>
         )}
+
         <div className="card space-y-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-red-500/10 flex items-center justify-center"><span className="text-2xl">🍎</span></div>
-            <div><h2 className="font-bold dark:text-white">Apple Health</h2><p className="text-sm text-gray-400">iPhone / Apple Watch</p></div>
-          </div>
-          {platform === 'ios' ? (
-            <button onClick={syncAppleHealth} disabled={syncing} className="btn-primary w-full flex items-center justify-center gap-2">
-              {isSyncing('apple_health') ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-              {isSyncing('apple_health') ? 'Syncing...' : 'Sync from Apple Health'}
-            </button>
-          ) : (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-2">
-              <div className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-500" /><p className="text-sm font-medium text-amber-500">Open on iPhone</p></div>
-              <p className="text-xs text-gray-400">Apple Health sync requires opening this app in Safari on your iPhone. Visit <strong>leatonperformance.co.nz/step-challenge</strong> on your iPhone.</p>
+            <div className="w-12 h-12 rounded-2xl bg-orange-500/10 flex items-center justify-center">
+              <span className="text-2xl">🏃</span>
             </div>
-          )}
-        </div>
-        <div className="card space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center"><span className="text-2xl">🤖</span></div>
-            <div><h2 className="font-bold dark:text-white">Google Fit</h2><p className="text-sm text-gray-400">Android / Wear OS</p></div>
-          </div>
-          {platform === 'android' ? (
-            <button onClick={syncGoogleFit} disabled={syncing} className="btn-primary w-full flex items-center justify-center gap-2">
-              {isSyncing('google_fit') ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-              {isSyncing('google_fit') ? 'Syncing...' : 'Sync from Google Fit'}
-            </button>
-          ) : (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-2">
-              <div className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-500" /><p className="text-sm font-medium text-amber-500">Open on Android</p></div>
-              <p className="text-xs text-gray-400">Google Fit sync requires opening this app on your Android device.</p>
+            <div>
+              <h2 className="font-bold dark:text-white">Strava</h2>
+              <p className="text-sm text-gray-400">Connect your Strava account to sync verified steps</p>
             </div>
-          )}
-        </div>
-        <div className="card space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center"><span className="text-2xl">💜</span></div>
-            <div><h2 className="font-bold dark:text-white">Samsung Health</h2><p className="text-sm text-gray-400">Android / Galaxy Watch</p></div>
           </div>
-          {platform === 'android' ? (
+
+          {stravaConnected ? (
             <div className="space-y-3">
-              <button onClick={syncSamsungHealth} disabled={syncing} className="btn-primary w-full flex items-center justify-center gap-2">
-                {isSyncing('samsung_health') ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-                {isSyncing('samsung_health') ? 'Syncing...' : 'Sync from Samsung Health'}
-              </button>
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
-                <p className="text-xs text-blue-400">💡 First time? Open <strong>Samsung Health → Settings → Health Connect → Allow All</strong>, then tap sync above.</p>
+              <div className="flex items-center gap-2 text-green-500">
+                <CheckCircle className="w-4 h-4" />
+                <p className="text-sm font-medium">Strava connected</p>
               </div>
+              <button onClick={syncStrava} disabled={syncing} className="btn-primary w-full flex items-center justify-center gap-2">
+                {syncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                {syncing ? 'Syncing...' : 'Sync Steps from Strava'}
+              </button>
+              <p className="text-xs text-gray-400 text-center">Steps are pulled from your Strava activities</p>
             </div>
           ) : (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 space-y-2">
-              <div className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-500" /><p className="text-sm font-medium text-amber-500">Open on Android</p></div>
-              <p className="text-xs text-gray-400">Samsung Health sync requires opening this app on your Android device.</p>
+            <div className="space-y-3">
+              <button onClick={connectStrava} className="btn-primary w-full flex items-center justify-center gap-2">
+                <Activity className="w-4 h-4" />
+                Connect Strava Account
+              </button>
+              <p className="text-xs text-gray-400 text-center">You will be redirected to Strava to authorise access. We only read your activity data.</p>
             </div>
           )}
         </div>
-        <div className="card space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-cobalt-500/10 flex items-center justify-center"><Smartphone className="w-6 h-6 text-cobalt-500" /></div>
-            <div><h2 className="font-bold dark:text-white">Enter Steps Manually</h2><p className="text-sm text-gray-400">Only if device sync isn't available</p></div>
-          </div>
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
-            <p className="text-xs text-amber-500">⚠️ Manual entries cannot be verified and may be excluded from prize eligibility at the admin's discretion.</p>
-          </div>
-          <form onSubmit={handleManualSubmit} className="flex gap-2">
-            <input type="number" value={manualSteps} onChange={e => setManualSteps(e.target.value)} placeholder="e.g. 8432" className="input flex-1" min="0" max="100000" />
-            <button type="submit" className="btn-primary px-4">Save</button>
-          </form>
-        </div>
-        <p className="text-xs text-center text-gray-400">Steps are synced daily. Last sync: {lastSync ? new Date(lastSync).toLocaleString() : 'Never'}</p>
+
+        <p className="text-xs text-center text-gray-400">
+          Steps are synced daily. Last sync: {lastSync ? new Date(lastSync).toLocaleString() : 'Never'}
+        </p>
       </div>
     </div>
   )
