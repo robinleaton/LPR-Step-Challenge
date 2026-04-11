@@ -8,6 +8,14 @@ import toast from 'react-hot-toast'
 
 const COUNTRIES = ['New Zealand','Australia','United Kingdom','United States','Rarotonga','Niue','Samoa','Tonga','Fiji']
 
+const DEFAULT_INSTRUCTIONS = `Welcome to the challenge! 🏃‍♂️
+
+This is a friendly competition to see who can walk the most steps. The person with the most total steps at the end wins the prize!
+
+For family overseas — no worries at all, the prize will be transferred to you if you win.
+
+Any questions? Message Robin directly. Good luck everyone — may the best walker win! 🏆`
+
 export default function AdminPage() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'overview'|'subscribers'|'leaderboard'|'challenges'|'sponsors'|'feedback'>('overview')
@@ -27,10 +35,11 @@ export default function AdminPage() {
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [editSlugValue, setEditSlugValue] = useState('')
   const [challengeForm, setChallengeForm] = useState({
-    title: '', description: '', start_date: '', start_time: '06:00',
+    title: '', start_date: '', start_time: '06:00',
     end_date: '', end_time: '23:59', prize_amount: '',
     participant_limit: '30', invite_only: true, paid_entry: false,
     entry_fee: '', allowed_countries: ['New Zealand'] as string[],
+    custom_instructions: DEFAULT_INSTRUCTIONS,
   })
   const [sponsorForm, setSponsorForm] = useState({ name: '', logo_url: '', link: '', tagline: '', is_active: true })
   const [showSponsorForm, setShowSponsorForm] = useState(false)
@@ -118,7 +127,7 @@ export default function AdminPage() {
     const slug = generateSlug(challengeForm.title)
     const { error } = await supabase.from('challenges').insert({
       title: challengeForm.title,
-      description: challengeForm.description,
+      description: challengeForm.custom_instructions,
       start_date: challengeForm.start_date,
       start_time: challengeForm.start_time,
       end_date: challengeForm.end_date,
@@ -139,7 +148,7 @@ export default function AdminPage() {
     const clean = editSlugValue.toLowerCase().replace(/[^a-z0-9-]/g, '-')
     const { error } = await supabase.from('challenges').update({ invite_slug: clean }).eq('id', challengeId)
     if (!error) { toast.success('Link updated!'); setEditingSlug(null); fetchAll() }
-    else toast.error('Slug already taken — try another')
+    else toast.error('That link is already taken — try another')
   }
 
   const copyLink = (slug: string) => {
@@ -344,11 +353,11 @@ export default function AdminPage() {
                   <div><label className="label">End Date</label><input className="input" type="date" value={challengeForm.end_date} onChange={e => setChallengeForm(p => ({ ...p, end_date: e.target.value }))} /></div>
                   <div><label className="label">End Time</label><input className="input" type="time" value={challengeForm.end_time} onChange={e => setChallengeForm(p => ({ ...p, end_time: e.target.value }))} /></div>
                   <div><label className="label">Prize Amount (NZD)</label><input className="input" type="number" placeholder="150" value={challengeForm.prize_amount} onChange={e => setChallengeForm(p => ({ ...p, prize_amount: e.target.value }))} /></div>
-                  <div><label className="label">Participant Limit</label><input className="input" type="number" placeholder="30" value={challengeForm.participant_limit} onChange={e => setChallengeForm(p => ({ ...p, participant_limit: e.target.value }))} /></div>
+                  <div><label className="label">Max Participants</label><input className="input" type="number" placeholder="30" value={challengeForm.participant_limit} onChange={e => setChallengeForm(p => ({ ...p, participant_limit: e.target.value }))} /></div>
                 </div>
 
                 <div>
-                  <label className="label">Allowed Countries (tick all that apply)</label>
+                  <label className="label">Allowed Countries</label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                     {COUNTRIES.map(country => (
                       <label key={country} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-all ${challengeForm.allowed_countries.includes(country) ? 'border-cobalt-500 bg-cobalt-500/10' : 'border-gray-200 dark:border-lpr-border'}`}>
@@ -362,7 +371,7 @@ export default function AdminPage() {
                 <div className="flex flex-wrap gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={challengeForm.invite_only} onChange={e => setChallengeForm(p => ({ ...p, invite_only: e.target.checked }))} className="w-4 h-4 accent-cobalt-500" />
-                    <span className="text-sm dark:text-gray-300">Invite only (link required to join)</span>
+                    <span className="text-sm dark:text-gray-300">Invite only</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={challengeForm.paid_entry} onChange={e => setChallengeForm(p => ({ ...p, paid_entry: e.target.checked }))} className="w-4 h-4 accent-cobalt-500" />
@@ -373,7 +382,16 @@ export default function AdminPage() {
                   )}
                 </div>
 
-                <div><label className="label">Description (optional)</label><textarea className="input" rows={2} placeholder="Details about the challenge..." value={challengeForm.description} onChange={e => setChallengeForm(p => ({ ...p, description: e.target.value }))} /></div>
+                <div>
+                  <label className="label">📝 Challenge Instructions</label>
+                  <p className="text-xs text-gray-400 mb-2">This message will be shown to participants on the join page. Tell them about the prize, how payment works for overseas winners, any special rules, etc.</p>
+                  <textarea
+                    className="input"
+                    rows={8}
+                    value={challengeForm.custom_instructions}
+                    onChange={e => setChallengeForm(p => ({ ...p, custom_instructions: e.target.value }))}
+                  />
+                </div>
 
                 <div className="flex gap-2">
                   <button onClick={createChallenge} className="btn-primary">Create Challenge + Generate Link</button>
@@ -396,7 +414,6 @@ export default function AdminPage() {
                   {ch.prize_pool?.length > 0 && <span>💰 ${ch.prize_pool[0].amount} NZD</span>}
                   {ch.allowed_countries?.length > 0 && <span>🌏 {ch.allowed_countries.join(', ')}</span>}
                 </div>
-
                 <div className="space-y-2">
                   <p className="text-xs text-gray-400 font-medium">Invite Link</p>
                   {editingSlug === ch.id ? (
@@ -451,10 +468,9 @@ export default function AdminPage() {
         {activeTab === 'feedback' && (
           <div className="space-y-6">
             <h2 className="font-bold dark:text-white">Challenge Feedback ({feedback.length} responses)</h2>
-
             {Object.keys(priceSummary).length > 0 && (
               <div className="card space-y-3">
-                <h3 className="font-medium dark:text-white">💰 Pricing Question — What would people pay to win $1,000?</h3>
+                <h3 className="font-medium dark:text-white">💰 What would people pay to win $1,000?</h3>
                 <div className="space-y-2">
                   {Object.entries(priceSummary).sort().map(([price, count]: any) => (
                     <div key={price} className="flex items-center gap-3">
@@ -468,9 +484,8 @@ export default function AdminPage() {
                 </div>
               </div>
             )}
-
             {feedback.length === 0 ? (
-              <div className="card text-center py-8 text-gray-400">No feedback yet — feedback is collected at the end of each challenge.</div>
+              <div className="card text-center py-8 text-gray-400">No feedback yet — collected at the end of each challenge.</div>
             ) : feedback.map(f => (
               <div key={f.id} className="card space-y-2">
                 <div className="flex items-center justify-between">
