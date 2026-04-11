@@ -82,21 +82,18 @@ export default function AdminPage() {
   }
 
   const deleteAccount = async (userId: string) => {
-    // Delete step logs first
-    await supabase.from('step_logs').delete().eq('user_id', userId)
-    // Delete profile
-    await supabase.from('profiles').delete().eq('id', userId)
-    // Delete auth user via admin API
-    const { error } = await supabase.auth.admin.deleteUser(userId)
-    if (!error) {
+    const response = await fetch('/api/admin/delete-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    })
+    const data = await response.json()
+    if (data.success) {
       toast.success('Account deleted')
       setConfirmDelete(null)
       fetchAll()
     } else {
-      // Profile deleted even if auth delete fails
-      toast.success('Account removed')
-      setConfirmDelete(null)
-      fetchAll()
+      toast.error(data.error || 'Failed to delete account')
     }
   }
 
@@ -215,35 +212,25 @@ export default function AdminPage() {
                   </div>
                   <div className="flex gap-2 shrink-0">
                     {sub.subscription_status !== 'cancelled' && (
-                      <button
-                        onClick={() => setConfirmCancel(sub.id)}
-                        className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-all"
-                      >
+                      <button onClick={() => setConfirmCancel(sub.id)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 transition-all">
                         <XCircle className="w-3.5 h-3.5" /> Cancel Sub
                       </button>
                     )}
-                    <button
-                      onClick={() => setConfirmDelete(sub.id)}
-                      className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all"
-                    >
+                    <button onClick={() => setConfirmDelete(sub.id)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all">
                       <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
                   </div>
                 </div>
-
-                {/* Cancel confirmation */}
                 {confirmCancel === sub.id && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
                     <p className="text-sm text-amber-500 font-medium">Cancel {sub.full_name || sub.email}'s subscription?</p>
-                    <p className="text-xs text-gray-400">They will lose access at the end of their billing period. This does not delete their account or data.</p>
+                    <p className="text-xs text-gray-400">They will lose access. This does not delete their account or data.</p>
                     <div className="flex gap-2">
                       <button onClick={() => cancelSubscription(sub.id)} className="text-xs px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600">Yes, cancel</button>
                       <button onClick={() => setConfirmCancel(null)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">Keep active</button>
                     </div>
                   </motion.div>
                 )}
-
-                {/* Delete confirmation */}
                 {confirmDelete === sub.id && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 space-y-2">
                     <p className="text-sm text-red-400 font-medium">Permanently delete {sub.full_name || sub.email}'s account?</p>
