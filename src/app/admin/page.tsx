@@ -33,6 +33,8 @@ export default function AdminPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null)
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null)
+  const [challengeParticipants, setChallengeParticipants] = useState<Record<string, any[]>>({})
+  const [confirmRemoveParticipant, setConfirmRemoveParticipant] = useState<string | null>(null)
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [editSlugValue, setEditSlugValue] = useState('')
   const [challengeForm, setChallengeForm] = useState({
