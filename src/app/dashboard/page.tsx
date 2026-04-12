@@ -9,7 +9,6 @@ import { SponsorFooter } from '@/components/SponsorFooter'
 import { getNZMilestone, getNextNZMilestone, formatSteps, stepsToKm } from '@/lib/constants'
 import { useTheme } from 'next-themes'
 import { Sun, Moon, LogOut, Settings, Trophy, Footprints, TrendingUp, Bell, Camera } from 'lucide-react'
-import toast from 'react-hot-toast'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -27,30 +26,35 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
 
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-      if (profile) {
-        setProfile(profile)
-        if (profile.theme) setTheme(profile.theme)
+      const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+      if (profileData) {
+        setProfile(profileData)
+        if (profileData.theme) setTheme(profileData.theme)
       }
 
       const today = new Date().toISOString().split('T')[0]
       const { data: todayLog } = await supabase.from('step_logs').select('steps').eq('user_id', user.id).eq('date', today).single()
-      setTodaySteps(todayLog?.steps || 0)
-      if (todayLog) setTodaySubmitted(true)
+      if (todayLog) { setTodaySteps(todayLog.steps); setTodaySubmitted(true) }
 
       const weekAgo = new Date()
       weekAgo.setDate(weekAgo.getDate() - 7)
       const { data: weekLogs } = await supabase.from('step_logs').select('steps').eq('user_id', user.id).gte('date', weekAgo.toISOString().split('T')[0])
-      setWeekSteps(weekLogs?.reduce((sum, l) => sum + l.steps, 0) || 0)
+      setWeekSteps(weekLogs?.reduce((sum: number, l: any) => sum + l.steps, 0) || 0)
 
       // Check if user is in an active challenge
       const { data: participant } = await supabase
         .from('challenge_participants')
-        .select('challenge_id, challenges(*)')
+        .select('challenge_id')
         .eq('user_id', user.id)
         .single()
-      if (participant?.challenges) {
-        setActiveChallenge(participant.challenges)
+
+      if (participant?.challenge_id) {
+        const { data: challenge } = await supabase
+          .from('challenges')
+          .select('*')
+          .eq('id', participant.challenge_id)
+          .single()
+        if (challenge) setActiveChallenge(challenge)
       }
 
       setLoading(false)
@@ -82,7 +86,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white dark:bg-lpr-black">
-      {/* Top nav */}
       <header className="sticky top-0 z-50 border-b border-gray-200 dark:border-lpr-border bg-white/90 dark:bg-lpr-black/90 backdrop-blur-sm px-4 py-3">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -98,7 +101,7 @@ export default function DashboardPage() {
             <button onClick={handleThemeToggle} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-            <button onClick={() => router.push('/notifications')} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors relative">
+            <button onClick={() => router.push('/notifications')} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
               <Bell className="w-4 h-4" />
             </button>
             {profile?.is_admin && (
@@ -116,7 +119,6 @@ export default function DashboardPage() {
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6 space-y-6">
         {activeTab === 'home' && (
           <>
-            {/* Avatar + Steps hero */}
             <div className="card flex flex-col md:flex-row items-center gap-6">
               <AvatarDisplay gender={profile?.gender || 'male'} totalSteps={profile?.total_steps || 0} size={180} />
               <div className="flex-1 space-y-4 text-center md:text-left">
@@ -138,13 +140,10 @@ export default function DashboardPage() {
                     <p className="text-xs text-gray-400">Total</p>
                   </div>
                 </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {stepsToKm(profile?.total_steps || 0)} km walked total
-                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">{stepsToKm(profile?.total_steps || 0)} km walked total</div>
               </div>
             </div>
 
-            {/* Active Challenge Banner */}
             {activeChallenge && (
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card bg-gradient-to-r from-cobalt-500/20 to-cobalt-500/5 border-cobalt-500/30 space-y-4">
                 <div className="flex items-center justify-between">
@@ -163,8 +162,6 @@ export default function DashboardPage() {
                     <p className="text-xs text-gray-400">participants</p>
                   </div>
                 </div>
-
-                {/* Submit steps button */}
                 {todaySubmitted ? (
                   <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/30 rounded-xl p-3">
                     <span className="text-2xl">✅</span>
@@ -174,32 +171,20 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => router.push('/submit')}
-                    className="w-full flex items-center justify-center gap-3 bg-cobalt-500 hover:bg-cobalt-600 text-white font-bold py-4 rounded-2xl transition-all active:scale-95 shadow-lg shadow-cobalt-500/30"
-                  >
-                    <Camera className="w-5 h-5" />
-                    Submit Today's Steps
+                  <button onClick={() => router.push('/submit')} className="w-full flex items-center justify-center gap-3 bg-cobalt-500 hover:bg-cobalt-600 text-white font-bold py-4 rounded-2xl transition-all active:scale-95 shadow-lg shadow-cobalt-500/30">
+                    <Camera className="w-5 h-5" /> Submit Today's Steps
                   </button>
                 )}
-
                 <p className="text-xs text-center text-gray-400">⏰ Steps must be submitted before <strong className="text-gray-300">11:59pm tonight</strong></p>
               </motion.div>
             )}
 
-            {/* NZ Distance milestone */}
             {(nzMilestone || nextNZMilestone) && (
               <motion.div className="card bg-gradient-to-r from-cobalt-500/10 to-transparent border-cobalt-500/30" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-                {nzMilestone && (
-                  <div className="mb-3">
-                    <p className="text-xl font-bold dark:text-white">{nzMilestone.emoji} {nzMilestone.description}</p>
-                  </div>
-                )}
+                {nzMilestone && <div className="mb-3"><p className="text-xl font-bold dark:text-white">{nzMilestone.emoji} {nzMilestone.description}</p></div>}
                 {nextNZMilestone && (
                   <div className="space-y-2">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Next milestone: <span className="font-medium text-cobalt-500">{nextNZMilestone.label}</span>
-                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Next milestone: <span className="font-medium text-cobalt-500">{nextNZMilestone.label}</span></p>
                     <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                       <motion.div className="h-full bg-cobalt-500 rounded-full" initial={{ width: 0 }} animate={{ width: `${Math.min(100, ((profile?.total_steps || 0) / nextNZMilestone.steps) * 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }} />
                     </div>
@@ -209,20 +194,15 @@ export default function DashboardPage() {
               </motion.div>
             )}
 
-            {/* Mini leaderboard */}
             <div className="card">
               <Leaderboard currentUserId={profile?.id} showFilters={false} />
-              <button onClick={() => setActiveTab('leaderboard')} className="w-full mt-4 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors">
-                View full leaderboard →
-              </button>
+              <button onClick={() => setActiveTab('leaderboard')} className="w-full mt-4 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors">View full leaderboard →</button>
             </div>
           </>
         )}
 
         {activeTab === 'leaderboard' && (
-          <div className="card">
-            <Leaderboard currentUserId={profile?.id} showFilters={true} />
-          </div>
+          <div className="card"><Leaderboard currentUserId={profile?.id} showFilters={true} /></div>
         )}
 
         {activeTab === 'challenges' && (
@@ -256,7 +236,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ) : (
-                  <button onClick={() => router.push('/submit')} className="w-full flex items-center justify-center gap-3 bg-cobalt-500 hover:bg-cobalt-600 text-white font-bold py-4 rounded-2xl transition-all active:scale-95">
+                  <button onClick={() => router.push('/submit')} className="w-full flex items-center justify-center gap-3 bg-cobalt-500 hover:bg-cobalt-600 text-white font-bold py-4 rounded-2xl transition-all">
                     <Camera className="w-5 h-5" /> Submit Today's Steps
                   </button>
                 )}
@@ -283,15 +263,11 @@ export default function DashboardPage() {
                   {profile?.subscription_status === 'active' ? '✓ Active Member' : profile?.subscription_status === 'trial' ? '⏱ Free Trial' : 'Inactive'}
                 </span>
               </div>
-              {profile?.subscription_status !== 'active' && (
-                <button onClick={() => router.push('/subscribe')} className="btn-primary w-full">Subscribe — $15 NZD/month</button>
-              )}
             </div>
           </div>
         )}
       </main>
 
-      {/* Bottom nav */}
       <nav className="sticky bottom-0 border-t border-gray-200 dark:border-lpr-border bg-white/90 dark:bg-lpr-black/90 backdrop-blur-sm px-4 py-2">
         <div className="max-w-4xl mx-auto grid grid-cols-4 gap-1">
           {[
