@@ -74,7 +74,20 @@ export default function AdminPage() {
     const { data: logs } = await supabase.from('step_logs').select('*, profiles(full_name, email, subscription_status)').eq('date', today).order('steps', { ascending: false })
     if (logs) setStepLogs(logs)
     const { data: ch } = await supabase.from('challenges').select('*').order('created_at', { ascending: false })
-    if (ch) setChallenges(ch)
+    if (ch) {
+  setChallenges(ch)
+  const { data: allParticipants } = await supabase
+    .from('challenge_participants')
+    .select('*, profiles(id, full_name, email, country)')
+  if (allParticipants) {
+    const grouped: Record<string, any[]> = {}
+    allParticipants.forEach(p => {
+      if (!grouped[p.challenge_id]) grouped[p.challenge_id] = []
+      grouped[p.challenge_id].push(p)
+    })
+    setChallengeParticipants(grouped)
+  }
+}
     const { data: sp } = await supabase.from('sponsors').select('*').order('display_order')
     if (sp) setSponsors(sp)
     const { data: fb } = await supabase.from('challenge_feedback').select('*, profiles(full_name, email)').order('created_at', { ascending: false })
@@ -189,7 +202,26 @@ export default function AdminPage() {
     if (!error) { toast.success('Link updated!'); setEditingSlug(null); fetchAll() }
     else toast.error('That link is already taken — try another')
   }
-
+const removeParticipant = async (participantId: string, challengeId: string) => {
+  const { error } = await supabase
+    .from('challenge_participants')
+    .delete()
+    .eq('id', participantId)
+  if (!error) {
+    const challenge = challenges.find(c => c.id === challengeId)
+    if (challenge) {
+      await supabase
+        .from('challenges')
+        .update({ current_participants: Math.max(0, (challenge.current_participants || 1) - 1) })
+        .eq('id', challengeId)
+    }
+    toast.success('Participant removed')
+    setConfirmRemoveParticipant(null)
+    fetchAll()
+  } else {
+    toast.error('Failed to remove participant')
+  }
+}
   const copyLink = (slug: string) => {
     const url = `${window.location.origin}/join/${slug}`
     navigator.clipboard.writeText(url)
@@ -495,6 +527,36 @@ export default function AdminPage() {
                     </div>
                   )}
                 </div>
+                <div className="space-y-2 mt-3">
+            <p className="text-xs text-gray-400 font-medium">
+              👥 Participants ({(challengeParticipants[ch.id] || []).length}/{ch.participant_limit})
+            </p>
+            {(challengeParticipants[ch.id] || []).length === 0 ? (
+              <p className="text-xs text-gray-500 italic">No one has joined yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {(challengeParticipants[ch.id] || []).map(p => (
+                  <div key={p.id} className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 rounded-xl px-3 py-2">
+                    <div>
+                      <p className="text-sm dark:text-white font-medium">{p.profiles?.full_name || '—'}</p>
+                      <p className="text-xs text-gray-400">{p.profiles?.email}{p.profiles?.country ? ` · ${p.profiles.country}` : ''}</p>
+                    </div>
+                    {confirmRemoveParticipant === p.id ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-red-400">Remove?</span>
+                        <button onClick={() => removeParticipant(p.id, ch.id)} className="text-xs px-2 py-1 rounded-lg bg-red-500 text-white">Yes</button>
+                        <button onClick={() => setConfirmRemoveParticipant(null)} className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">No</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmRemoveParticipant(p.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center gap-1">
+                        <Trash2 className="w-3 h-3" /> Remove
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
               </div>
             ))}
           </div>
