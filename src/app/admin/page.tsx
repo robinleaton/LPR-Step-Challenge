@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
-import { Plus, Trash2, ArrowLeft, AlertTriangle, Mail, XCircle, Copy, Check } from 'lucide-react'
+import { Plus, Trash2, ArrowLeft, AlertTriangle, Mail, XCircle, Copy, Check, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const COUNTRIES = ['New Zealand','Australia','United Kingdom','United States','Rarotonga','Niue','Samoa','Tonga','Fiji']
@@ -27,6 +27,7 @@ export default function AdminPage() {
   const [feedback, setFeedback] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showChallengeForm, setShowChallengeForm] = useState(false)
+  const [editingChallenge, setEditingChallenge] = useState<any>(null)
   const [editingSteps, setEditingSteps] = useState<string | null>(null)
   const [editStepValue, setEditStepValue] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
@@ -142,6 +143,42 @@ export default function AdminPage() {
     })
     if (!error) { toast.success('Challenge created!'); setShowChallengeForm(false); fetchAll() }
     else toast.error(error.message)
+  }
+
+  const startEditChallenge = (ch: any) => {
+    setEditingChallenge({
+      ...ch,
+      prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '',
+      custom_instructions: ch.description || '',
+    })
+  }
+
+  const saveEditChallenge = async () => {
+    if (!editingChallenge) return
+    const { error } = await supabase.from('challenges').update({
+      title: editingChallenge.title,
+      description: editingChallenge.custom_instructions,
+      start_date: editingChallenge.start_date,
+      start_time: editingChallenge.start_time,
+      end_date: editingChallenge.end_date,
+      end_time: editingChallenge.end_time,
+      prize_pool: editingChallenge.prize_amount ? [{ place: 1, amount: parseFloat(editingChallenge.prize_amount), description: '1st place prize' }] : [],
+      participant_limit: parseInt(editingChallenge.participant_limit),
+      allowed_countries: editingChallenge.allowed_countries,
+      invite_only: editingChallenge.invite_only,
+      is_active: editingChallenge.is_active,
+    }).eq('id', editingChallenge.id)
+    if (!error) { toast.success('Challenge updated!'); setEditingChallenge(null); fetchAll() }
+    else toast.error(error.message)
+  }
+
+  const toggleEditCountry = (country: string) => {
+    setEditingChallenge((prev: any) => ({
+      ...prev,
+      allowed_countries: prev.allowed_countries.includes(country)
+        ? prev.allowed_countries.filter((c: string) => c !== country)
+        : [...prev.allowed_countries, country]
+    }))
   }
 
   const updateSlug = async (challengeId: string) => {
@@ -347,7 +384,7 @@ export default function AdminPage() {
               <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="card space-y-5">
                 <h3 className="font-bold dark:text-white text-lg">Create New Challenge</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="md:col-span-2"><label className="label">Challenge Title</label><input className="input" placeholder="Leaton Family Challenge April 2026" value={challengeForm.title} onChange={e => setChallengeForm(p => ({ ...p, title: e.target.value }))} /></div>
+                  <div className="md:col-span-2"><label className="label">Challenge Title</label><input className="input" placeholder="Leaton Family Challenge" value={challengeForm.title} onChange={e => setChallengeForm(p => ({ ...p, title: e.target.value }))} /></div>
                   <div><label className="label">Start Date</label><input className="input" type="date" value={challengeForm.start_date} onChange={e => setChallengeForm(p => ({ ...p, start_date: e.target.value }))} /></div>
                   <div><label className="label">Start Time</label><input className="input" type="time" value={challengeForm.start_time} onChange={e => setChallengeForm(p => ({ ...p, start_time: e.target.value }))} /></div>
                   <div><label className="label">End Date</label><input className="input" type="date" value={challengeForm.end_date} onChange={e => setChallengeForm(p => ({ ...p, end_date: e.target.value }))} /></div>
@@ -355,7 +392,6 @@ export default function AdminPage() {
                   <div><label className="label">Prize Amount (NZD)</label><input className="input" type="number" placeholder="150" value={challengeForm.prize_amount} onChange={e => setChallengeForm(p => ({ ...p, prize_amount: e.target.value }))} /></div>
                   <div><label className="label">Max Participants</label><input className="input" type="number" placeholder="30" value={challengeForm.participant_limit} onChange={e => setChallengeForm(p => ({ ...p, participant_limit: e.target.value }))} /></div>
                 </div>
-
                 <div>
                   <label className="label">Allowed Countries</label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
@@ -367,35 +403,54 @@ export default function AdminPage() {
                     ))}
                   </div>
                 </div>
-
                 <div className="flex flex-wrap gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={challengeForm.invite_only} onChange={e => setChallengeForm(p => ({ ...p, invite_only: e.target.checked }))} className="w-4 h-4 accent-cobalt-500" />
                     <span className="text-sm dark:text-gray-300">Invite only</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={challengeForm.paid_entry} onChange={e => setChallengeForm(p => ({ ...p, paid_entry: e.target.checked }))} className="w-4 h-4 accent-cobalt-500" />
-                    <span className="text-sm dark:text-gray-300">Paid entry</span>
-                  </label>
-                  {challengeForm.paid_entry && (
-                    <div className="w-full md:w-48"><label className="label">Entry Fee (NZD)</label><input className="input" type="number" placeholder="10" value={challengeForm.entry_fee} onChange={e => setChallengeForm(p => ({ ...p, entry_fee: e.target.value }))} /></div>
-                  )}
                 </div>
-
-                <div>
-                  <label className="label">📝 Challenge Instructions</label>
-                  <p className="text-xs text-gray-400 mb-2">This message will be shown to participants on the join page. Tell them about the prize, how payment works for overseas winners, any special rules, etc.</p>
-                  <textarea
-                    className="input"
-                    rows={8}
-                    value={challengeForm.custom_instructions}
-                    onChange={e => setChallengeForm(p => ({ ...p, custom_instructions: e.target.value }))}
-                  />
-                </div>
-
+                <div><label className="label">📝 Challenge Instructions</label><p className="text-xs text-gray-400 mb-2">Shown to participants on the join page.</p><textarea className="input" rows={6} value={challengeForm.custom_instructions} onChange={e => setChallengeForm(p => ({ ...p, custom_instructions: e.target.value }))} /></div>
                 <div className="flex gap-2">
                   <button onClick={createChallenge} className="btn-primary">Create Challenge + Generate Link</button>
                   <button onClick={() => setShowChallengeForm(false)} className="btn-secondary">Cancel</button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Edit Challenge Form */}
+            {editingChallenge && (
+              <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="card space-y-5 border-cobalt-500/50">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold dark:text-white text-lg">✏️ Edit Challenge</h3>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <span className="text-sm dark:text-gray-300">Active</span>
+                    <input type="checkbox" checked={editingChallenge.is_active} onChange={e => setEditingChallenge((p: any) => ({ ...p, is_active: e.target.checked }))} className="w-4 h-4 accent-cobalt-500" />
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2"><label className="label">Challenge Title</label><input className="input" value={editingChallenge.title} onChange={e => setEditingChallenge((p: any) => ({ ...p, title: e.target.value }))} /></div>
+                  <div><label className="label">Start Date</label><input className="input" type="date" value={editingChallenge.start_date} onChange={e => setEditingChallenge((p: any) => ({ ...p, start_date: e.target.value }))} /></div>
+                  <div><label className="label">Start Time</label><input className="input" type="time" value={editingChallenge.start_time || '06:00'} onChange={e => setEditingChallenge((p: any) => ({ ...p, start_time: e.target.value }))} /></div>
+                  <div><label className="label">End Date</label><input className="input" type="date" value={editingChallenge.end_date} onChange={e => setEditingChallenge((p: any) => ({ ...p, end_date: e.target.value }))} /></div>
+                  <div><label className="label">End Time</label><input className="input" type="time" value={editingChallenge.end_time || '23:59'} onChange={e => setEditingChallenge((p: any) => ({ ...p, end_time: e.target.value }))} /></div>
+                  <div><label className="label">Prize Amount (NZD)</label><input className="input" type="number" value={editingChallenge.prize_amount} onChange={e => setEditingChallenge((p: any) => ({ ...p, prize_amount: e.target.value }))} /></div>
+                  <div><label className="label">Max Participants</label><input className="input" type="number" value={editingChallenge.participant_limit} onChange={e => setEditingChallenge((p: any) => ({ ...p, participant_limit: e.target.value }))} /></div>
+                </div>
+                <div>
+                  <label className="label">Allowed Countries</label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                    {COUNTRIES.map(country => (
+                      <label key={country} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-all ${editingChallenge.allowed_countries?.includes(country) ? 'border-cobalt-500 bg-cobalt-500/10' : 'border-gray-200 dark:border-lpr-border'}`}>
+                        <input type="checkbox" checked={editingChallenge.allowed_countries?.includes(country)} onChange={() => toggleEditCountry(country)} className="accent-cobalt-500" />
+                        <span className="text-sm dark:text-gray-300">{country}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div><label className="label">📝 Challenge Instructions</label><textarea className="input" rows={6} value={editingChallenge.custom_instructions} onChange={e => setEditingChallenge((p: any) => ({ ...p, custom_instructions: e.target.value }))} /></div>
+                <div className="flex gap-2">
+                  <button onClick={saveEditChallenge} className="btn-primary">Save Changes</button>
+                  <button onClick={() => setEditingChallenge(null)} className="btn-secondary">Cancel</button>
                 </div>
               </motion.div>
             )}
@@ -406,7 +461,12 @@ export default function AdminPage() {
               <div key={ch.id} className="card space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold dark:text-white">{ch.title}</h3>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${ch.is_active ? 'bg-green-500/10 text-green-500' : 'bg-gray-500/10 text-gray-400'}`}>{ch.is_active ? 'Active' : 'Ended'}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${ch.is_active ? 'bg-green-500/10 text-green-500' : 'bg-gray-500/10 text-gray-400'}`}>{ch.is_active ? 'Active' : 'Ended'}</span>
+                    <button onClick={() => startEditChallenge(ch)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-cobalt-500/10 text-cobalt-400 hover:bg-cobalt-500/20 transition-all">
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </button>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-gray-400">
                   <span>📅 {ch.start_date} {ch.start_time} → {ch.end_date} {ch.end_time}</span>
