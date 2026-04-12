@@ -8,7 +8,7 @@ import { Leaderboard } from '@/components/leaderboard/Leaderboard'
 import { SponsorFooter } from '@/components/SponsorFooter'
 import { getNZMilestone, getNextNZMilestone, formatSteps, stepsToKm } from '@/lib/constants'
 import { useTheme } from 'next-themes'
-import { Sun, Moon, LogOut, Settings, Trophy, Footprints, TrendingUp, Bell } from 'lucide-react'
+import { Sun, Moon, LogOut, Settings, Trophy, Footprints, TrendingUp, Bell, Camera } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function DashboardPage() {
@@ -17,53 +17,44 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<any>(null)
   const [todaySteps, setTodaySteps] = useState(0)
   const [weekSteps, setWeekSteps] = useState(0)
+  const [todaySubmitted, setTodaySubmitted] = useState(false)
+  const [activeChallenge, setActiveChallenge] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'home' | 'leaderboard' | 'challenges' | 'profile'>('home')
 
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/auth/login')
-        return
-      }
-      
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-      
+      if (!user) { router.push('/auth/login'); return }
+
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       if (profile) {
         setProfile(profile)
-        // Apply saved theme
         if (profile.theme) setTheme(profile.theme)
       }
 
-      // Get today's steps
       const today = new Date().toISOString().split('T')[0]
-      const { data: todayLog } = await supabase
-        .from('step_logs')
-        .select('steps')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .single()
-      
+      const { data: todayLog } = await supabase.from('step_logs').select('steps').eq('user_id', user.id).eq('date', today).single()
       setTodaySteps(todayLog?.steps || 0)
+      if (todayLog) setTodaySubmitted(true)
 
-      // Get week steps
       const weekAgo = new Date()
       weekAgo.setDate(weekAgo.getDate() - 7)
-      const { data: weekLogs } = await supabase
-        .from('step_logs')
-        .select('steps')
-        .eq('user_id', user.id)
-        .gte('date', weekAgo.toISOString().split('T')[0])
-      
+      const { data: weekLogs } = await supabase.from('step_logs').select('steps').eq('user_id', user.id).gte('date', weekAgo.toISOString().split('T')[0])
       setWeekSteps(weekLogs?.reduce((sum, l) => sum + l.steps, 0) || 0)
+
+      // Check if user is in an active challenge
+      const { data: participant } = await supabase
+        .from('challenge_participants')
+        .select('challenge_id, challenges(*)')
+        .eq('user_id', user.id)
+        .single()
+      if (participant?.challenges) {
+        setActiveChallenge(participant.challenges)
+      }
+
       setLoading(false)
     }
-
     checkAuth()
   }, [router])
 
@@ -75,9 +66,7 @@ export default function DashboardPage() {
   const handleThemeToggle = async () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark'
     setTheme(newTheme)
-    if (profile) {
-      await supabase.from('profiles').update({ theme: newTheme }).eq('id', profile.id)
-    }
+    if (profile) await supabase.from('profiles').update({ theme: newTheme }).eq('id', profile.id)
   }
 
   const nzMilestone = profile ? getNZMilestone(profile.total_steps) : null
@@ -86,11 +75,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <motion.div
-          className="w-16 h-16 rounded-full border-4 border-cobalt-500 border-t-transparent"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-        />
+        <motion.div className="w-16 h-16 rounded-full border-4 border-cobalt-500 border-t-transparent" animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} />
       </div>
     )
   }
@@ -107,11 +92,8 @@ export default function DashboardPage() {
             <span className="font-bold text-gray-900 dark:text-white text-sm">Step Challenge</span>
           </div>
           <div className="flex items-center gap-2">
-            {/* Trial badge */}
             {profile?.subscription_status === 'trial' && (
-              <span className="text-xs bg-amber-500/20 text-amber-500 px-2 py-1 rounded-full border border-amber-500/30">
-                Trial
-              </span>
+              <span className="text-xs bg-amber-500/20 text-amber-500 px-2 py-1 rounded-full border border-amber-500/30">Trial</span>
             )}
             <button onClick={handleThemeToggle} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -136,11 +118,7 @@ export default function DashboardPage() {
           <>
             {/* Avatar + Steps hero */}
             <div className="card flex flex-col md:flex-row items-center gap-6">
-              <AvatarDisplay
-                gender={profile?.gender || 'male'}
-                totalSteps={profile?.total_steps || 0}
-                size={180}
-              />
+              <AvatarDisplay gender={profile?.gender || 'male'} totalSteps={profile?.total_steps || 0} size={180} />
               <div className="flex-1 space-y-4 text-center md:text-left">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Welcome back,</p>
@@ -166,13 +144,52 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* Active Challenge Banner */}
+            {activeChallenge && (
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card bg-gradient-to-r from-cobalt-500/20 to-cobalt-500/5 border-cobalt-500/30 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-cobalt-400 font-semibold uppercase tracking-wider">⚡ Active Challenge</p>
+                    <h2 className="text-lg font-bold dark:text-white mt-0.5">{activeChallenge.title}</h2>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Ends {activeChallenge.end_date} at {activeChallenge.end_time}
+                      {activeChallenge.prize_pool?.[0] && (
+                        <span className="ml-2 text-amber-400 font-semibold">· 🏆 ${activeChallenge.prize_pool[0].amount} NZD prize</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-black text-cobalt-500">{activeChallenge.current_participants || 0}</p>
+                    <p className="text-xs text-gray-400">participants</p>
+                  </div>
+                </div>
+
+                {/* Submit steps button */}
+                {todaySubmitted ? (
+                  <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/30 rounded-xl p-3">
+                    <span className="text-2xl">✅</span>
+                    <div>
+                      <p className="font-bold text-green-500">Steps submitted today!</p>
+                      <p className="text-sm text-gray-400">{todaySteps.toLocaleString()} steps logged · Come back tomorrow</p>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => router.push('/submit')}
+                    className="w-full flex items-center justify-center gap-3 bg-cobalt-500 hover:bg-cobalt-600 text-white font-bold py-4 rounded-2xl transition-all active:scale-95 shadow-lg shadow-cobalt-500/30"
+                  >
+                    <Camera className="w-5 h-5" />
+                    Submit Today's Steps
+                  </button>
+                )}
+
+                <p className="text-xs text-center text-gray-400">⏰ Steps must be submitted before <strong className="text-gray-300">11:59pm tonight</strong></p>
+              </motion.div>
+            )}
+
             {/* NZ Distance milestone */}
             {(nzMilestone || nextNZMilestone) && (
-              <motion.div
-                className="card bg-gradient-to-r from-cobalt-500/10 to-transparent border-cobalt-500/30"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
+              <motion.div className="card bg-gradient-to-r from-cobalt-500/10 to-transparent border-cobalt-500/30" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                 {nzMilestone && (
                   <div className="mb-3">
                     <p className="text-xl font-bold dark:text-white">{nzMilestone.emoji} {nzMilestone.description}</p>
@@ -184,43 +201,18 @@ export default function DashboardPage() {
                       Next milestone: <span className="font-medium text-cobalt-500">{nextNZMilestone.label}</span>
                     </p>
                     <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                      <motion.div
-                        className="h-full bg-cobalt-500 rounded-full"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${Math.min(100, ((profile?.total_steps || 0) / nextNZMilestone.steps) * 100)}%` }}
-                        transition={{ duration: 1, ease: 'easeOut' }}
-                      />
+                      <motion.div className="h-full bg-cobalt-500 rounded-full" initial={{ width: 0 }} animate={{ width: `${Math.min(100, ((profile?.total_steps || 0) / nextNZMilestone.steps) * 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }} />
                     </div>
-                    <p className="text-xs text-gray-400">
-                      {formatSteps(nextNZMilestone.steps - (profile?.total_steps || 0))} steps away
-                    </p>
+                    <p className="text-xs text-gray-400">{formatSteps(nextNZMilestone.steps - (profile?.total_steps || 0))} steps away</p>
                   </div>
                 )}
               </motion.div>
             )}
 
-            {/* Sync steps prompt */}
-            <div className="card border-dashed border-2 border-cobalt-500/30 text-center space-y-3">
-              <Footprints className="w-10 h-10 mx-auto text-cobalt-500" />
-              <h3 className="font-bold dark:text-white">Sync Your Steps</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Connect Apple Health or Google Fit to automatically sync your steps every day.
-              </p>
-              <button
-                onClick={() => router.push('/sync')}
-                className="btn-primary mx-auto"
-              >
-                Connect & Sync Steps
-              </button>
-            </div>
-
             {/* Mini leaderboard */}
             <div className="card">
               <Leaderboard currentUserId={profile?.id} showFilters={false} />
-              <button
-                onClick={() => setActiveTab('leaderboard')}
-                className="w-full mt-4 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors"
-              >
+              <button onClick={() => setActiveTab('leaderboard')} className="w-full mt-4 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors">
                 View full leaderboard →
               </button>
             </div>
@@ -234,19 +226,46 @@ export default function DashboardPage() {
         )}
 
         {activeTab === 'challenges' && (
-          <div className="card text-center py-10 space-y-4">
-            <Trophy className="w-16 h-16 mx-auto text-cobalt-500" />
-            <h2 className="text-xl font-bold dark:text-white">Active Challenges</h2>
-            <p className="text-gray-400">No active challenges right now. Check back soon!</p>
-            {profile?.subscription_status !== 'active' && (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-sm text-amber-500">
-                ⚠️ Subscribe to be eligible for cash prizes
-                <button
-                  onClick={() => router.push('/subscribe')}
-                  className="ml-2 underline font-medium"
-                >
-                  Subscribe now →
-                </button>
+          <div className="space-y-4">
+            {activeChallenge ? (
+              <div className="card space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-cobalt-400 font-semibold uppercase tracking-wider">⚡ Your Active Challenge</p>
+                    <h2 className="text-xl font-bold dark:text-white mt-1">{activeChallenge.title}</h2>
+                  </div>
+                  <span className="text-xs bg-green-500/10 text-green-500 px-3 py-1 rounded-full font-medium">Active</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                    <p className="text-gray-400 text-xs">Ends</p>
+                    <p className="font-medium dark:text-white">{activeChallenge.end_date}</p>
+                    <p className="text-cobalt-400 text-xs">{activeChallenge.end_time}</p>
+                  </div>
+                  <div className="bg-amber-500/10 rounded-xl p-3">
+                    <p className="text-gray-400 text-xs">Prize 🏆</p>
+                    <p className="font-bold text-amber-500 text-lg">${activeChallenge.prize_pool?.[0]?.amount || 0} NZD</p>
+                  </div>
+                </div>
+                {todaySubmitted ? (
+                  <div className="flex items-center gap-3 bg-green-500/10 border border-green-500/30 rounded-xl p-3">
+                    <span className="text-2xl">✅</span>
+                    <div>
+                      <p className="font-bold text-green-500">Steps submitted today!</p>
+                      <p className="text-sm text-gray-400">{todaySteps.toLocaleString()} steps logged</p>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => router.push('/submit')} className="w-full flex items-center justify-center gap-3 bg-cobalt-500 hover:bg-cobalt-600 text-white font-bold py-4 rounded-2xl transition-all active:scale-95">
+                    <Camera className="w-5 h-5" /> Submit Today's Steps
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="card text-center py-10 space-y-4">
+                <Trophy className="w-16 h-16 mx-auto text-cobalt-500" />
+                <h2 className="text-xl font-bold dark:text-white">No Active Challenge</h2>
+                <p className="text-gray-400">You're not currently in a challenge. Ask Robin for an invite link!</p>
               </div>
             )}
           </div>
@@ -256,39 +275,17 @@ export default function DashboardPage() {
           <div className="card space-y-4">
             <h2 className="text-xl font-bold dark:text-white">Your Profile</h2>
             <div className="space-y-3">
-              <div>
-                <label className="label">Name</label>
-                <p className="text-gray-900 dark:text-white">{profile?.full_name}</p>
-              </div>
-              <div>
-                <label className="label">Email</label>
-                <p className="text-gray-900 dark:text-white">{profile?.email}</p>
-              </div>
+              <div><label className="label">Name</label><p className="text-gray-900 dark:text-white">{profile?.full_name}</p></div>
+              <div><label className="label">Email</label><p className="text-gray-900 dark:text-white">{profile?.email}</p></div>
               <div>
                 <label className="label">Subscription</label>
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                  profile?.subscription_status === 'active' 
-                    ? 'bg-green-500/20 text-green-500' 
-                    : profile?.subscription_status === 'trial'
-                    ? 'bg-amber-500/20 text-amber-500'
-                    : 'bg-red-500/20 text-red-500'
-                }`}>
-                  {profile?.subscription_status === 'active' ? '✓ Active Member' 
-                    : profile?.subscription_status === 'trial' ? '⏱ Free Trial'
-                    : 'Inactive'}
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${profile?.subscription_status === 'active' ? 'bg-green-500/20 text-green-500' : profile?.subscription_status === 'trial' ? 'bg-amber-500/20 text-amber-500' : 'bg-red-500/20 text-red-500'}`}>
+                  {profile?.subscription_status === 'active' ? '✓ Active Member' : profile?.subscription_status === 'trial' ? '⏱ Free Trial' : 'Inactive'}
                 </span>
               </div>
               {profile?.subscription_status !== 'active' && (
-                <button onClick={() => router.push('/subscribe')} className="btn-primary w-full">
-                  Subscribe — $15 NZD/month
-                </button>
+                <button onClick={() => router.push('/subscribe')} className="btn-primary w-full">Subscribe — $15 NZD/month</button>
               )}
-              <div>
-                <label className="label">Notifications</label>
-                <button onClick={() => router.push('/notifications/settings')} className="btn-secondary">
-                  Manage Notifications
-                </button>
-              </div>
             </div>
           </div>
         )}
@@ -303,22 +300,13 @@ export default function DashboardPage() {
             { id: 'challenges', icon: <TrendingUp className="w-5 h-5" />, label: 'Challenges' },
             { id: 'profile', icon: <Settings className="w-5 h-5" />, label: 'Profile' },
           ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex flex-col items-center gap-1 py-2 rounded-xl transition-all ${
-                activeTab === tab.id
-                  ? 'text-cobalt-500'
-                  : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-              }`}
-            >
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center gap-1 py-2 rounded-xl transition-all ${activeTab === tab.id ? 'text-cobalt-500' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}>
               {tab.icon}
               <span className="text-xs">{tab.label}</span>
             </button>
           ))}
         </div>
       </nav>
-
       <SponsorFooter />
     </div>
   )
