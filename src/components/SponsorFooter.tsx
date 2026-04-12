@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { motion } from 'framer-motion'
 
 interface Sponsor {
   id: string
@@ -32,80 +31,63 @@ export function SponsorFooter() {
 
   if (loading) return null
 
-  const content = sponsor ? (
-    
-      href={sponsor.link || '#'}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center justify-between w-full gap-4 group"
-    >
-      <div className="flex items-center gap-3">
-        <div className="flex flex-col">
-          <span className="text-[10px] font-semibold tracking-[0.2em] uppercase text-amber-400/70">
-            ✦ Proudly Sponsored By ✦
-          </span>
-          {sponsor.logo_url ? (
-            <img src={sponsor.logo_url} alt={sponsor.name} className="h-7 object-contain mt-1" />
-          ) : (
-            <span className="text-lg font-black text-white group-hover:text-amber-300 transition-colors tracking-tight">
-              {sponsor.name}
-            </span>
-          )}
-        </div>
-      </div>
-      {sponsor.tagline && (
-        <div className="text-right">
-          <p className="text-sm font-bold text-amber-300 group-hover:text-amber-200 transition-colors">
-            {sponsor.tagline}
-          </p>
-          <p className="text-[10px] text-white/40 mt-0.5">Tap to learn more →</p>
-        </div>
-      )}
-    </a>
-  ) : (
-    
-      href="https://leatonperformance.co.nz"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center justify-between w-full gap-4 group"
-    >
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-full bg-amber-400 flex items-center justify-center shadow-lg shadow-amber-500/30">
-          <span className="text-black text-xs font-black">LPR</span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[10px] font-semibold tracking-[0.2em] uppercase text-amber-400/70">
-            ✦ Proudly Sponsored By ✦
-          </span>
-          <span className="text-base font-black text-white group-hover:text-amber-300 transition-colors">
-            Leaton Performance & Rehab
-          </span>
-        </div>
-      </div>
-      <div className="text-right hidden sm:block">
-        <p className="text-sm font-bold text-amber-300 group-hover:text-amber-200 transition-colors">
-          leatonperformance.co.nz
-        </p>
-        <p className="text-[10px] text-white/40 mt-0.5">Tap to learn more →</p>
-      </div>
-    </a>
-  )
+  const sponsorName = sponsor?.name ?? 'Leaton Performance & Rehab'
+  const sponsorLink = sponsor?.link ?? 'https://leatonperformance.co.nz'
+  const sponsorTagline = sponsor?.tagline ?? 'leatonperformance.co.nz'
 
   return (
-    <div className="relative w-full mt-auto overflow-hidden">
-      {/* Shimmer animation */}
-      <div className="absolute inset-0 bg-gradient-to-r from-gray-900 via-amber-950/40 to-gray-900" />
-      <motion.div
-        className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-400/10 to-transparent"
-        animate={{ x: ['-100%', '100%'] }}
-        transition={{ duration: 3, repeat: Infinity, ease: 'linear', repeatDelay: 2 }}
-      />
-      {/* Gold top border */}
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-400/60 to-transparent" />
+    <div className="relative w-full mt-auto overflow-hidden" style={{ background: 'linear-gradient(90deg, #111 0%, #2a1a00 50%, #111 100%)' }}>
+      {/* Gold shimmer top border */}
+      <div style={{ height: '1px', background: 'linear-gradient(90deg, transparent, #f59e0b, transparent)' }} />
 
-      <footer className="relative px-6 py-4">
+      {/* Shimmer overlay */}
+      <style>{`
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        .sponsor-shimmer::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(90deg, transparent, rgba(245,158,11,0.08), transparent);
+          animation: shimmer 4s infinite;
+        }
+      `}</style>
+
+      <footer className="sponsor-shimmer relative px-6 py-4">
         <div className="max-w-4xl mx-auto">
-          {content}
+          
+            href={sponsorLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between w-full gap-4 group"
+          >
+            <div className="flex items-center gap-3">
+              {!sponsor?.logo_url && (
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 12px rgba(245,158,11,0.4)' }}>
+                  <span style={{ color: '#000', fontSize: 11, fontWeight: 900 }}>LPR</span>
+                </div>
+              )}
+              {sponsor?.logo_url && (
+                <img src={sponsor.logo_url} alt={sponsorName} style={{ height: 32, objectFit: 'contain' }} />
+              )}
+              <div className="flex flex-col">
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.15em', color: 'rgba(245,158,11,0.7)', textTransform: 'uppercase' }}>
+                  ✦ Proudly Sponsored By ✦
+                </span>
+                <span style={{ fontSize: 16, fontWeight: 900, color: '#fff', letterSpacing: '-0.01em' }} className="group-hover:text-amber-300 transition-colors">
+                  {sponsorName}
+                </span>
+              </div>
+            </div>
+            <div className="text-right hidden sm:block">
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#fcd34d' }} className="group-hover:text-amber-200 transition-colors">
+                {sponsorTagline}
+              </p>
+              <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>Tap to learn more →</p>
+            </div>
+          </a>
         </div>
       </footer>
     </div>
