@@ -25,47 +25,29 @@ export default function DashboardPage() {
     const checkAuth = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
-
       const { data: profileData } = await supabase.from('profiles').select('*').eq('id', user.id).single()
       if (profileData) {
         setProfile(profileData)
         if (profileData.theme) setTheme(profileData.theme)
       }
-
       const today = new Date().toISOString().split('T')[0]
       const { data: todayLog } = await supabase.from('step_logs').select('steps').eq('user_id', user.id).eq('date', today).single()
       if (todayLog) { setTodaySteps(todayLog.steps); setTodaySubmitted(true) }
-
       const weekAgo = new Date()
       weekAgo.setDate(weekAgo.getDate() - 7)
       const { data: weekLogs } = await supabase.from('step_logs').select('steps').eq('user_id', user.id).gte('date', weekAgo.toISOString().split('T')[0])
       setWeekSteps(weekLogs?.reduce((sum: number, l: any) => sum + l.steps, 0) || 0)
-
-      // Check if user is in an active challenge
-      const { data: participant } = await supabase
-        .from('challenge_participants')
-        .select('challenge_id')
-        .eq('user_id', user.id)
-        .single()
-
+      const { data: participant } = await supabase.from('challenge_participants').select('challenge_id').eq('user_id', user.id).single()
       if (participant?.challenge_id) {
-        const { data: challenge } = await supabase
-          .from('challenges')
-          .select('*')
-          .eq('id', participant.challenge_id)
-          .single()
+        const { data: challenge } = await supabase.from('challenges').select('*').eq('id', participant.challenge_id).single()
         if (challenge) setActiveChallenge(challenge)
       }
-
       setLoading(false)
     }
     checkAuth()
   }, [router])
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/auth/login')
-  }
+  const handleLogout = async () => { await supabase.auth.signOut(); router.push('/auth/login') }
 
   const handleThemeToggle = async () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark'
@@ -140,7 +122,7 @@ export default function DashboardPage() {
                     <p className="text-xs text-gray-400">Total</p>
                   </div>
                 </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">{stepsToKm(profile?.total_steps || 0)} km walked total</div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{stepsToKm(profile?.total_steps || 0)} km walked total</p>
               </div>
             </div>
 
@@ -216,7 +198,7 @@ export default function DashboardPage() {
                   </div>
                   <span className="text-xs bg-green-500/10 text-green-500 px-3 py-1 rounded-full font-medium">Active</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
                     <p className="text-gray-400 text-xs">Ends</p>
                     <p className="font-medium dark:text-white">{activeChallenge.end_date}</p>
@@ -225,6 +207,14 @@ export default function DashboardPage() {
                   <div className="bg-amber-500/10 rounded-xl p-3">
                     <p className="text-gray-400 text-xs">Prize 🏆</p>
                     <p className="font-bold text-amber-500 text-lg">${activeChallenge.prize_pool?.[0]?.amount || 0} NZD</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                    <p className="text-gray-400 text-xs">Participants</p>
+                    <p className="font-bold dark:text-white">{activeChallenge.current_participants || 0} / {activeChallenge.participant_limit}</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                    <p className="text-gray-400 text-xs">Your steps today</p>
+                    <p className="font-bold text-cobalt-500">{todaySteps.toLocaleString()}</p>
                   </div>
                 </div>
                 {todaySubmitted ? (
@@ -239,6 +229,12 @@ export default function DashboardPage() {
                   <button onClick={() => router.push('/submit')} className="w-full flex items-center justify-center gap-3 bg-cobalt-500 hover:bg-cobalt-600 text-white font-bold py-4 rounded-2xl transition-all">
                     <Camera className="w-5 h-5" /> Submit Today's Steps
                   </button>
+                )}
+                {activeChallenge.description && (
+                  <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 font-medium mb-2">📋 From the organiser</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-line">{activeChallenge.description}</p>
+                  </div>
                 )}
               </div>
             ) : (
@@ -258,11 +254,12 @@ export default function DashboardPage() {
               <div><label className="label">Name</label><p className="text-gray-900 dark:text-white">{profile?.full_name}</p></div>
               <div><label className="label">Email</label><p className="text-gray-900 dark:text-white">{profile?.email}</p></div>
               <div>
-                <label className="label">Subscription</label>
+                <label className="label">Status</label>
                 <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${profile?.subscription_status === 'active' ? 'bg-green-500/20 text-green-500' : profile?.subscription_status === 'trial' ? 'bg-amber-500/20 text-amber-500' : 'bg-red-500/20 text-red-500'}`}>
                   {profile?.subscription_status === 'active' ? '✓ Active Member' : profile?.subscription_status === 'trial' ? '⏱ Free Trial' : 'Inactive'}
                 </span>
               </div>
+              {profile?.country && <div><label className="label">Country</label><p className="text-gray-900 dark:text-white">{profile.country}</p></div>}
             </div>
           </div>
         )}
