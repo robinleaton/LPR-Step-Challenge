@@ -2,17 +2,16 @@
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
+
 const formatDate = (date: string, time: string) => {
   const d = new Date(`${date}T${time}`)
   return d.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
 const COUNTRY_FLAGS: Record<string, string> = {
-  'New Zealand': '🇳🇿', 'Australia': '🇦🇺', 'United Kingdom': '🇬🇧',
-  'United States': '🇺🇸', 'Rarotonga': '🇨🇰', 'Niue': '🇳🇺',
-  'Samoa': '🇼🇸', 'Tonga': '🇹🇴', 'Fiji': '🇫🇯'
+  'New Zealand': '🇳🇿', 'Australia': '🇦🇺', 'United Kingdom': '🇬🇧', 'United States': '🇺🇸',
+  'Rarotonga': '🇨🇰', 'Niue': '🇳🇺', 'Samoa': '🇼🇸', 'Tonga': '🇹🇴', 'Fiji': '🇫🇯'
 }
 
 export default function JoinPage() {
@@ -40,19 +39,10 @@ export default function JoinPage() {
     if ((challenge.current_participants || 0) >= challenge.participant_limit) { toast.error('This challenge is full'); return }
     setSubmitting(true)
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: form.email,
-        password: form.password,
-        options: { data: { full_name: form.fullName } }
-      })
+      const { data, error } = await supabase.auth.signUp({ email: form.email, password: form.password, options: { data: { full_name: form.fullName } } })
       if (error) { toast.error(error.message); setSubmitting(false); return }
       if (data.user) {
-        await supabase.from('profiles').update({
-          full_name: form.fullName,
-          country: form.country,
-          subscription_status: 'active',
-          is_subscribed: true,
-        }).eq('id', data.user.id)
+        await supabase.from('profiles').update({ full_name: form.fullName, country: form.country, subscription_status: 'active', is_subscribed: true }).eq('id', data.user.id)
         await supabase.from('challenge_participants').insert({ challenge_id: challenge.id, user_id: data.user.id })
         await supabase.from('challenges').update({ current_participants: (challenge.current_participants || 0) + 1 }).eq('id', challenge.id)
         toast.success('Welcome to the challenge! 🎉')
@@ -85,22 +75,20 @@ export default function JoinPage() {
     <div className="min-h-screen bg-white dark:bg-lpr-black px-4 py-8">
       <div className="max-w-lg mx-auto space-y-6">
 
-        {/* Header */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center space-y-3">
+        <div className="text-center space-y-3">
           <div className="w-16 h-16 rounded-full bg-cobalt-500 flex items-center justify-center mx-auto">
             <span className="text-white font-bold text-xl">LPR</span>
           </div>
           <h1 className="text-2xl font-bold dark:text-white">{challenge.title}</h1>
-        </motion.div>
+        </div>
 
-        {/* Challenge details */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }} className="card space-y-3">
+        <div className="card space-y-3">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
               <p className="text-gray-400 text-xs">Starts</p>
               <p className="font-medium dark:text-white text-xs">{formatDate(challenge.start_date, challenge.start_time || '00:00')}</p>
-            </div>  
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">  
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
               <p className="text-gray-400 text-xs">Ends</p>
               <p className="font-medium dark:text-white text-xs">{formatDate(challenge.end_date, challenge.end_time || '23:59')}</p>
             </div>
@@ -126,17 +114,16 @@ export default function JoinPage() {
               </div>
             </div>
           )}
-        </motion.div>
+        </div>
 
-        {/* How it Works */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="card space-y-4">
+        <div className="card space-y-4">
           <h2 className="font-bold dark:text-white text-lg">👟 How it Works — It's Easy!</h2>
           <div className="space-y-3">
             {[
               { step: '1', emoji: '🚶', title: 'Walk!', desc: 'Go for a walk, run, or any activity that counts steps. Every step counts towards your total!' },
               { step: '2', emoji: '📱', title: 'Check your steps', desc: 'At the end of each day, open your fitness app (Samsung Health, Apple Health, Fitbit, etc.) and take a screenshot of your step count for today.' },
-              { step: '3', emoji: '📸', title: 'Submit before 11:59pm', desc: 'Open this app, tap "Submit Today\'s Steps", upload your screenshot and confirm your steps. That\'s it!' },
-              { step: '4', emoji: '🏆', title: 'Watch the leaderboard', desc: 'See how you\'re tracking against everyone else in real time. The person with the most steps at the end wins!' },
+              { step: '3', emoji: '📸', title: 'Submit before 11:59pm', desc: "Open this app, tap \"Submit Today's Steps\", upload your screenshot and confirm your steps. That's it!" },
+              { step: '4', emoji: '🏆', title: 'Watch the leaderboard', desc: "See how you're tracking against everyone else in real time. The person with the most steps at the end wins!" },
             ].map(item => (
               <div key={item.step} className="flex gap-3">
                 <div className="w-8 h-8 rounded-full bg-cobalt-500 flex items-center justify-center shrink-0 mt-0.5">
@@ -153,17 +140,15 @@ export default function JoinPage() {
             <p className="text-sm text-red-400 font-medium">⚠️ Important Rule</p>
             <p className="text-sm text-gray-400 mt-1">Steps <strong className="text-gray-300">must be submitted before 11:59pm on the same day</strong>. You cannot go back and add steps for a previous day, so don't forget!</p>
           </div>
-        </motion.div>
+        </div>
 
-        {/* Custom instructions from admin */}
         {challenge.description && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="card space-y-2">
+          <div className="card space-y-2">
             <h2 className="font-bold dark:text-white">📋 From the organiser</h2>
             <p className="text-sm text-gray-400 whitespace-pre-line">{challenge.description}</p>
-          </motion.div>
+          </div>
         )}
 
-        {/* Signup form or full message */}
         {isFull ? (
           <div className="card text-center py-8 space-y-2">
             <p className="text-4xl">😔</p>
@@ -171,7 +156,7 @@ export default function JoinPage() {
             <p className="text-gray-400 text-sm">All {challenge.participant_limit} spots have been taken.</p>
           </div>
         ) : (
-          <motion.form initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} onSubmit={handleJoin} className="card space-y-4">
+          <form onSubmit={handleJoin} className="card space-y-4">
             <h2 className="font-bold dark:text-white text-lg">✍️ Sign Up to Join</h2>
             <div><label className="label">Full Name</label><input required className="input" placeholder="e.g. Robin Leaton" value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} /></div>
             <div><label className="label">Email Address</label><input required type="email" className="input" placeholder="e.g. robin@email.com" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
@@ -202,8 +187,9 @@ export default function JoinPage() {
                 '🏃 Join the Challenge!'
               )}
             </button>
-          </motion.form>
+          </form>
         )}
+
       </div>
     </div>
   )
