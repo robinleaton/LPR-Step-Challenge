@@ -45,6 +45,18 @@ export default function JoinPage() {
         await supabase.from('profiles').update({ full_name: form.fullName, country: form.country, subscription_status: 'active', is_subscribed: true }).eq('id', data.user.id)
         await supabase.from('challenge_participants').insert({ challenge_id: challenge.id, user_id: data.user.id })
         await supabase.from('challenges').update({ current_participants: (challenge.current_participants || 0) + 1 }).eq('id', challenge.id)
+        await fetch('/api/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: form.fullName,
+            email: form.email,
+            challengeTitle: challenge.title,
+            startDate: formatDate(challenge.start_date, challenge.start_time || '00:00'),
+            endDate: formatDate(challenge.end_date, challenge.end_time || '23:59'),
+            prize: challenge.prize_pool?.[0] ? `$${challenge.prize_pool[0].amount} NZD` : null,
+          })
+        })
         toast.success('Welcome to the challenge! 🎉')
         router.push('/dashboard')
       }
