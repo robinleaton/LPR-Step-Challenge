@@ -140,25 +140,7 @@ if (participation?.challenges) {
         <div className="card bg-amber-500/10 border-amber-500/30">
           <p className="text-sm text-amber-500">⏰ Steps must be submitted before <strong>11:59pm today</strong> or they cannot be counted.</p>
         </div>
-        // Block submissions outside challenge window
-const today = new Date().toISOString().split('T')[0]
-const { data: participation } = await supabase
-  .from('challenge_participants')
-  .select('challenges(start_date, end_date)')
-  .eq('user_id', user.id)
-  .single()
-if (participation?.challenges) {
-  const ch = participation.challenges as any
-  if (today < ch.start_date) {
-    toast.error(`Challenge hasn't started yet — submissions open on ${ch.start_date}`)
-    return
-  }
-  if (today > ch.end_date) {
-    toast.error('This challenge has ended.')
-    return
-  }
-}
-
+        
         {isPastCutoff && (
           <div className="card bg-red-500/10 border-red-500/30 text-center py-8 space-y-2">
             <p className="text-2xl">🚫</p>
