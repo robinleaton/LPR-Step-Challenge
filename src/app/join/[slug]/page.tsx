@@ -4,6 +4,10 @@ import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
+const formatDate = (date: string, time: string) => {
+  const d = new Date(`${date}T${time}`)
+  return d.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit', hour12: true })
+}
 
 const COUNTRY_FLAGS: Record<string, string> = {
   'New Zealand': '🇳🇿', 'Australia': '🇦🇺', 'United Kingdom': '🇬🇧',
@@ -82,7 +86,7 @@ export default function JoinPage() {
       <div className="max-w-lg mx-auto space-y-6">
 
         {/* Header */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center space-y-3">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center space-y-3">
           <div className="w-16 h-16 rounded-full bg-cobalt-500 flex items-center justify-center mx-auto">
             <span className="text-white font-bold text-xl">LPR</span>
           </div>
@@ -94,13 +98,11 @@ export default function JoinPage() {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
               <p className="text-gray-400 text-xs">Starts</p>
-              <p className="font-medium dark:text-white">{challenge.start_date}</p>
-              <p className="text-cobalt-400 text-xs">{challenge.start_time}</p>
-            </div>
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+              <p className="font-medium dark:text-white text-xs">{formatDate(challenge.start_date, challenge.start_time || '00:00')}</p>
+            </div>  
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">  
               <p className="text-gray-400 text-xs">Ends</p>
-              <p className="font-medium dark:text-white">{challenge.end_date}</p>
-              <p className="text-cobalt-400 text-xs">{challenge.end_time}</p>
+              <p className="font-medium dark:text-white text-xs">{formatDate(challenge.end_date, challenge.end_time || '23:59')}</p>
             </div>
             {challenge.prize_pool?.[0] && (
               <div className="bg-amber-500/10 rounded-xl p-3">
