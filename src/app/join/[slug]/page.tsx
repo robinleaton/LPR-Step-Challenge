@@ -21,6 +21,7 @@ export default function JoinPage() {
   const [challenge, setChallenge] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [mode, setMode] = useState<'signup' | 'signin'>('signup')
   const [form, setForm] = useState({ fullName: '', email: '', password: '', country: '', agreeSteps: false, agreeFeedback: false })
 
   useEffect(() => {
@@ -31,6 +32,34 @@ export default function JoinPage() {
     }
     fetchChallenge()
   }, [slug])
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password })
+      if (error) { toast.error(error.message); setSubmitting(false); return }
+      if (data.user) {
+        // Check if already in this challenge
+        const { data: existing } = await supabase
+          .from('challenge_participants')
+          .select('id')
+          .eq('user_id', data.user.id)
+          .eq('challenge_id', challenge.id)
+          .single()
+        if (!existing) {
+          // Join the challenge
+          await supabase.from('challenge_participants').insert({ challenge_id: challenge.id, user_id: data.user.id })
+          await supabase.from('challenges').update({ current_participants: (challenge.current_participants || 0) + 1 }).eq('id', challenge.id)
+          toast.success('Welcome to the challenge! 🎉')
+        } else {
+          toast.success('Welcome back! 🎉')
+        }
+        router.push('/dashboard')
+      }
+    } catch { toast.error('Something went wrong. Please try again.') }
+    setSubmitting(false)
+  }
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -168,38 +197,62 @@ export default function JoinPage() {
             <p className="text-gray-400 text-sm">All {challenge.participant_limit} spots have been taken.</p>
           </div>
         ) : (
-          <form onSubmit={handleJoin} className="card space-y-4">
-            <h2 className="font-bold dark:text-white text-lg">✍️ Sign Up to Join</h2>
-            <div><label className="label">Full Name</label><input required className="input" placeholder="e.g. John Doe" value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} /></div>
-            <div><label className="label">Email Address</label><input required type="email" className="input" placeholder="e.g. johndoe@johndoe.com" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
-            <div><label className="label">Choose a Password</label><input required type="password" className="input" placeholder="At least 6 characters" minLength={6} value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} /></div>
-            <div>
-              <label className="label">Your Country</label>
-              <select required className="input" value={form.country} onChange={e => setForm(p => ({ ...p, country: e.target.value }))}>
-                <option value="">Select your country...</option>
-                {(challenge.allowed_countries || []).map((c: string) => (
-                  <option key={c} value={c}>{COUNTRY_FLAGS[c] || '🌏'} {c}</option>
-                ))}
-              </select>
+          <div className="card space-y-4">
+            {/* Toggle tabs */}
+            <div className="flex rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setMode('signup')}
+                className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mode === 'signup' ? 'bg-cobalt-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+              >
+                ✍️ New here? Sign up
+              </button>
+              <button
+                onClick={() => setMode('signin')}
+                className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mode === 'signin' ? 'bg-cobalt-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+              >
+                👋 Already have an account?
+              </button>
             </div>
-            <div className="space-y-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input type="checkbox" checked={form.agreeSteps} onChange={e => setForm(p => ({ ...p, agreeSteps: e.target.checked }))} className="mt-1 accent-cobalt-500 shrink-0" />
-                <span className="text-sm text-gray-600 dark:text-gray-300">I understand that steps must be submitted before <strong className="text-white">11:59pm on the same day</strong>. I cannot go back and add steps for previous days.</span>
-              </label>
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input type="checkbox" checked={form.agreeFeedback} onChange={e => setForm(p => ({ ...p, agreeFeedback: e.target.checked }))} className="mt-1 accent-cobalt-500 shrink-0" />
-                <span className="text-sm text-gray-600 dark:text-gray-300">I'm happy to answer a short <strong className="text-white">feedback survey</strong> at the end of the challenge to help make future challenges even better.</span>
-              </label>
-            </div>
-            <button type="submit" disabled={submitting} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
-              {submitting ? (
-                <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Joining...</>
-              ) : (
-                '🏃 Join the Challenge!'
-              )}
-            </button>
-          </form>
+
+            {mode === 'signup' ? (
+              <form onSubmit={handleJoin} className="space-y-4">
+                <div><label className="label">Full Name</label><input required className="input" placeholder="e.g. John Doe" value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} /></div>
+                <div><label className="label">Email Address</label><input required type="email" className="input" placeholder="e.g. johndoe@johndoe.com" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+                <div><label className="label">Choose a Password</label><input required type="password" className="input" placeholder="At least 6 characters" minLength={6} value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} /></div>
+                <div>
+                  <label className="label">Your Country</label>
+                  <select required className="input" value={form.country} onChange={e => setForm(p => ({ ...p, country: e.target.value }))}>
+                    <option value="">Select your country...</option>
+                    {(challenge.allowed_countries || []).map((c: string) => (
+                      <option key={c} value={c}>{COUNTRY_FLAGS[c] || '🌏'} {c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" checked={form.agreeSteps} onChange={e => setForm(p => ({ ...p, agreeSteps: e.target.checked }))} className="mt-1 accent-cobalt-500 shrink-0" />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">I understand that steps must be submitted before <strong className="text-white">11:59pm on the same day</strong>. I cannot go back and add steps for previous days.</span>
+                  </label>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input type="checkbox" checked={form.agreeFeedback} onChange={e => setForm(p => ({ ...p, agreeFeedback: e.target.checked }))} className="mt-1 accent-cobalt-500 shrink-0" />
+                    <span className="text-sm text-gray-600 dark:text-gray-300">I'm happy to answer a short <strong className="text-white">feedback survey</strong> at the end of the challenge to help make future challenges even better.</span>
+                  </label>
+                </div>
+                <button type="submit" disabled={submitting} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
+                  {submitting ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Joining...</> : '🏃 Join the Challenge!'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleSignIn} className="space-y-4">
+                <p className="text-sm text-gray-400">Already have an account? Sign in and you'll be added to this challenge automatically.</p>
+                <div><label className="label">Email Address</label><input required type="email" className="input" placeholder="e.g. johndoe@johndoe.com" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+                <div><label className="label">Password</label><input required type="password" className="input" placeholder="Your password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} /></div>
+                <button type="submit" disabled={submitting} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
+                  {submitting ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Signing in...</> : '👋 Sign In & Join Challenge'}
+                </button>
+              </form>
+            )}
+          </div>
         )}
 
       </div>
