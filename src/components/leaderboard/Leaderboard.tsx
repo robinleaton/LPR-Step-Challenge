@@ -12,12 +12,9 @@ interface LeaderboardEntry {
   full_name: string
   gender: string
   date_of_birth: string
-  avatar_stage: number
   total_steps: number
   is_subscribed: boolean
   subscription_status: string
-  overall_rank: number
-  age: number
 }
 
 interface LeaderboardProps {
@@ -31,50 +28,88 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
   const [genderFilter, setGenderFilter] = useState<string>('all')
   const [ageFilter, setAgeFilter] = useState<string>('all')
   const [showTop, setShowTop] = useState(10)
+  const [challengeDates, setChallengeDates] = useState<{ start: string, end: string } | null>(null)
 
   const fetchLeaderboard = async () => {
-    let query = supabase
-      .from('leaderboard_view')
-      .select('*')
-      .order('total_steps', { ascending: false })
-      .limit(100)
+    // Step 1: find the active challenge
+    const { data: challenges } = await supabase
+      .from('challenges')
+      .select('id, start_date, end_date')
+      .order('start_date', { ascending: false })
+      .limit(1)
 
+    const challenge = challenges?.[0]
+    if (!challenge) { setLoading(false); return }
+
+    setChallengeDates({ start: challenge.start_date, end: challenge.end_date })
+
+    // Step 2: get all participants in this challenge with their profiles
+    const { data: participants } = await supabase
+      .from('challenge_participants')
+      .select('user_id, profiles(id, full_name, gender, date_of_birth, is_subscribed, subscription_status)')
+      .eq('challenge_id', challenge.id)
+
+    if (!participants || participants.length === 0) { setEntries([]); setLoading(false); return }
+
+    // Step 3: sum step_logs for each participant within challenge dates
+    const userIds = participants.map((p: any) => p.user_id)
+
+    const { data: stepLogs } = await supabase
+      .from('step_logs')
+      .select('user_id, steps')
+      .in('user_id', userIds)
+      .gte('date', challenge.start_date)
+      .lte('date', challenge.end_date)
+
+    // Step 4: aggregate steps per user
+    const stepsByUser: Record<string, number> = {}
+    userIds.forEach((id: string) => { stepsByUser[id] = 0 })
+    stepLogs?.forEach((log: any) => {
+      stepsByUser[log.user_id] = (stepsByUser[log.user_id] || 0) + log.steps
+    })
+
+    // Step 5: build leaderboard entries
+    let result: LeaderboardEntry[] = participants.map((p: any) => ({
+      id: p.profiles?.id || p.user_id,
+      full_name: p.profiles?.full_name || 'Anonymous',
+      gender: p.profiles?.gender || 'male',
+      date_of_birth: p.profiles?.date_of_birth || '',
+      is_subscribed: p.profiles?.is_subscribed || false,
+      subscription_status: p.profiles?.subscription_status || '',
+      total_steps: stepsByUser[p.user_id] || 0,
+    }))
+
+    // Apply gender filter
     if (genderFilter !== 'all') {
-      query = query.eq('gender', genderFilter)
+      result = result.filter(e => e.gender === genderFilter)
     }
 
-    const { data, error } = await query
-    if (!error && data) {
-      let filtered = data
-      if (ageFilter !== 'all') {
-        const bracket = AGE_BRACKETS.find(b => b.label === ageFilter)
-        if (bracket) {
-          filtered = data.filter(e => {
-            const age = e.age || (e.date_of_birth ? getAge(e.date_of_birth) : 0)
-            return age >= bracket.min && age <= bracket.max
-          })
-        }
+    // Apply age filter
+    if (ageFilter !== 'all') {
+      const bracket = AGE_BRACKETS.find(b => b.label === ageFilter)
+      if (bracket) {
+        result = result.filter(e => {
+          const age = e.date_of_birth ? getAge(e.date_of_birth) : 0
+          return age >= bracket.min && age <= bracket.max
+        })
       }
-      setEntries(filtered)
     }
+
+    // Sort by steps descending
+    result.sort((a, b) => b.total_steps - a.total_steps)
+
+    setEntries(result)
     setLoading(false)
   }
 
   useEffect(() => {
     fetchLeaderboard()
-
-    // Real-time subscription
     const channel = supabase
       .channel('leaderboard-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'profiles',
-      }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'step_logs' }, () => {
         fetchLeaderboard()
       })
       .subscribe()
-
     return () => { supabase.removeChannel(channel) }
   }, [genderFilter, ageFilter])
 
@@ -95,7 +130,6 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Trophy className="w-6 h-6 text-cobalt-500" />
@@ -107,44 +141,32 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
         </div>
       </div>
 
-      {/* Filters */}
+      {challengeDates && (
+        <p className="text-xs text-gray-400">Steps from {challengeDates.start} to {challengeDates.end}</p>
+      )}
+
       {showFilters && (
         <div className="flex flex-wrap gap-2">
           <div className="flex items-center gap-1">
             <Filter className="w-4 h-4 text-gray-400" />
             <span className="text-xs text-gray-400">Filter:</span>
           </div>
-          {/* Gender filter */}
           <div className="flex gap-1">
             {['all', 'male', 'female'].map(g => (
-              <button
-                key={g}
-                onClick={() => setGenderFilter(g)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                  genderFilter === g
-                    ? 'bg-cobalt-500 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-                }`}
-              >
+              <button key={g} onClick={() => setGenderFilter(g)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${genderFilter === g ? 'bg-cobalt-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
                 {g === 'all' ? 'All' : g === 'male' ? '👨 Male' : '👩 Female'}
               </button>
             ))}
           </div>
-          {/* Age filter */}
-          <select
-            value={ageFilter}
-            onChange={(e) => setAgeFilter(e.target.value)}
-            className="px-3 py-1 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-none outline-none"
-          >
+          <select value={ageFilter} onChange={(e) => setAgeFilter(e.target.value)}
+            className="px-3 py-1 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-none outline-none">
             <option value="all">All Ages</option>
-            {AGE_BRACKETS.map(b => (
-              <option key={b.label} value={b.label}>{b.label}</option>
-            ))}
+            {AGE_BRACKETS.map(b => (<option key={b.label} value={b.label}>{b.label}</option>))}
           </select>
         </div>
       )}
 
-      {/* Leaderboard list */}
       {loading ? (
         <div className="space-y-3">
           {[...Array(5)].map((_, i) => (
@@ -163,31 +185,17 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
               const isCurrentUser = entry.id === currentUserId
               const rank = index + 1
               const stage = getAvatarStage(entry.total_steps)
-
               return (
-                <motion.div
-                  key={entry.id}
-                  layout
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
+                <motion.div key={entry.id} layout
+                  initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${getRankBg(rank, isCurrentUser)}`}
-                >
-                  {/* Rank */}
-                  <div className="flex items-center justify-center w-8">
-                    {getRankIcon(rank)}
-                  </div>
-
-                  {/* Mini avatar */}
+                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${getRankBg(rank, isCurrentUser)}`}>
+                  <div className="flex items-center justify-center w-8">{getRankIcon(rank)}</div>
                   <div className="flex-shrink-0">
-                    {entry.gender === 'female' ? (
-                      <FemaleAvatar stage={stage.stage} size={44} animated={false} />
-                    ) : (
-                      <MaleAvatar stage={stage.stage} size={44} animated={false} />
-                    )}
+                    {entry.gender === 'female'
+                      ? <FemaleAvatar stage={stage.stage} size={44} animated={false} />
+                      : <MaleAvatar stage={stage.stage} size={44} animated={false} />}
                   </div>
-
-                  {/* Name & info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className={`font-semibold truncate text-sm ${isCurrentUser ? 'text-cobalt-400' : 'dark:text-white'}`}>
@@ -195,15 +203,11 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
                         {isCurrentUser && <span className="ml-1 text-xs text-cobalt-400">(you)</span>}
                       </p>
                       {entry.is_subscribed && (
-                        <span className="flex-shrink-0 text-xs bg-cobalt-500/20 text-cobalt-400 px-1.5 py-0.5 rounded-full">
-                          ✓ Member
-                        </span>
+                        <span className="flex-shrink-0 text-xs bg-cobalt-500/20 text-cobalt-400 px-1.5 py-0.5 rounded-full">✓ Member</span>
                       )}
                     </div>
                     <p className="text-xs text-gray-400">{stage.name}</p>
                   </div>
-
-                  {/* Steps */}
                   <div className="text-right flex-shrink-0">
                     <p className="font-bold text-sm dark:text-white">{formatSteps(entry.total_steps)}</p>
                     <p className="text-xs text-gray-400">steps</p>
@@ -212,13 +216,9 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
               )
             })}
           </AnimatePresence>
-
-          {/* Show more */}
           {entries.length > showTop && (
-            <button
-              onClick={() => setShowTop(prev => prev + 10)}
-              className="w-full py-2 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors"
-            >
+            <button onClick={() => setShowTop(prev => prev + 10)}
+              className="w-full py-2 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors">
               Show more ({entries.length - showTop} remaining)
             </button>
           )}
