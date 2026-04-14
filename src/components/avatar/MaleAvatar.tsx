@@ -228,6 +228,10 @@ export function MaleAvatar({ stage, animated = true, size = 200 }: MaleAvatarPro
             <line x1="15" y1="80" x2="45" y2="75" stroke="#FFD700" strokeWidth="2" strokeOpacity="0.6" />
             <line x1="185" y1="80" x2="155" y2="75" stroke="#FFD700" strokeWidth="2" strokeOpacity="0.6" />
             <line x1="30" y1="50" x2="55" y2="62" stroke="#FFD700" strokeWidth="1.5" strokeOpacity="0.5" />
-            <line x1="170" y1="50" x2="145" y2="62" stroke="#FFD700" strokeWidth="1.5" strokeOpacity="0.5" />
+                    <line x1="170" y1="50" x2="145" y2="62" stroke="#FFD700" strokeWidth="1.5" strokeOpacity="0.5" />
           </motion.g>
         )}
+      </svg>
+        </motion.div>
+      )
+}
