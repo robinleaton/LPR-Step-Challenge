@@ -170,8 +170,8 @@ export default function JoinPage() {
         ) : (
           <form onSubmit={handleJoin} className="card space-y-4">
             <h2 className="font-bold dark:text-white text-lg">✍️ Sign Up to Join</h2>
-            <div><label className="label">Full Name</label><input required className="input" placeholder="e.g. Robin Leaton" value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} /></div>
-            <div><label className="label">Email Address</label><input required type="email" className="input" placeholder="e.g. robin@email.com" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+            <div><label className="label">Full Name</label><input required className="input" placeholder="e.g. John Doe" value={form.fullName} onChange={e => setForm(p => ({ ...p, fullName: e.target.value }))} /></div>
+            <div><label className="label">Email Address</label><input required type="email" className="input" placeholder="e.g. johndoe@johndoe.com" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
             <div><label className="label">Choose a Password</label><input required type="password" className="input" placeholder="At least 6 characters" minLength={6} value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} /></div>
             <div>
               <label className="label">Your Country</label>
