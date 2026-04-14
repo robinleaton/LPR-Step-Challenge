@@ -231,12 +231,3 @@ export function MaleAvatar({ stage, animated = true, size = 200 }: MaleAvatarPro
             <line x1="170" y1="50" x2="145" y2="62" stroke="#FFD700" strokeWidth="1.5" strokeOpacity="0.5" />
           </motion.g>
         )}
-
-        {/* ── STAGE BADGE ── */}
-        <circle cx="170" cy="30" r="16" fill={stage === 5 ? '#FFD700' : '#0047AB'} />
-        <text x="170" y="35" textAnchor="middle" fill={stage === 5 ? '#7A5800' : 'white'} fontSize="14" fontWeight="bold">{stage}</text>
-
-      </svg>
-    </motion.div>
-  )
-}
