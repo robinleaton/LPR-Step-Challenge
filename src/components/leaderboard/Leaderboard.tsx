@@ -28,20 +28,22 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
   const [genderFilter, setGenderFilter] = useState<string>('all')
   const [ageFilter, setAgeFilter] = useState<string>('all')
   const [showTop, setShowTop] = useState(10)
-  const [challengeDates, setChallengeDates] = useState<{ start: string, end: string } | null>(null)
+  const [challengeDates, setChallengeDates] = useState<{ start: string, end: string, title: string } | null>(null)
 
   const fetchLeaderboard = async () => {
-    // Step 1: find the active challenge
-    const { data: challenges } = await supabase
-      .from('challenges')
-      .select('id, start_date, end_date')
-      .order('start_date', { ascending: false })
-      .limit(1)
+    if (!currentUserId) { setLoading(false); return }
 
-    const challenge = challenges?.[0]
+    // Step 1: find THIS user's active challenge
+    const { data: participation } = await supabase
+      .from('challenge_participants')
+      .select('challenge_id, challenges(id, title, start_date, end_date)')
+      .eq('user_id', currentUserId)
+      .single()
+
+    const challenge = (participation?.challenges as any)
     if (!challenge) { setLoading(false); return }
 
-    setChallengeDates({ start: challenge.start_date, end: challenge.end_date })
+    setChallengeDates({ start: challenge.start_date, end: challenge.end_date, title: challenge.title })
 
     // Step 2: get all participants in this challenge with their profiles
     const { data: participants } = await supabase
@@ -80,24 +82,19 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
     }))
 
     // Apply gender filter
-    if (genderFilter !== 'all') {
-      result = result.filter(e => e.gender === genderFilter)
-    }
+    if (genderFilter !== 'all') result = result.filter(e => e.gender === genderFilter)
 
     // Apply age filter
     if (ageFilter !== 'all') {
       const bracket = AGE_BRACKETS.find(b => b.label === ageFilter)
-      if (bracket) {
-        result = result.filter(e => {
-          const age = e.date_of_birth ? getAge(e.date_of_birth) : 0
-          return age >= bracket.min && age <= bracket.max
-        })
-      }
+      if (bracket) result = result.filter(e => {
+        const age = e.date_of_birth ? getAge(e.date_of_birth) : 0
+        return age >= bracket.min && age <= bracket.max
+      })
     }
 
     // Sort by steps descending
     result.sort((a, b) => b.total_steps - a.total_steps)
-
     setEntries(result)
     setLoading(false)
   }
@@ -106,12 +103,10 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
     fetchLeaderboard()
     const channel = supabase
       .channel('leaderboard-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'step_logs' }, () => {
-        fetchLeaderboard()
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'step_logs' }, () => fetchLeaderboard())
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [genderFilter, ageFilter])
+  }, [genderFilter, ageFilter, currentUserId])
 
   const getRankIcon = (rank: number) => {
     if (rank === 1) return <Crown className="w-5 h-5 text-yellow-400" />
@@ -142,7 +137,9 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
       </div>
 
       {challengeDates && (
-        <p className="text-xs text-gray-400">Steps from {challengeDates.start} to {challengeDates.end}</p>
+        <p className="text-xs text-gray-400">
+          {challengeDates.title} · {challengeDates.start} → {challengeDates.end}
+        </p>
       )}
 
       {showFilters && (
@@ -159,24 +156,22 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
               </button>
             ))}
           </div>
-          <select value={ageFilter} onChange={(e) => setAgeFilter(e.target.value)}
+          <select value={ageFilter} onChange={e => setAgeFilter(e.target.value)}
             className="px-3 py-1 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-none outline-none">
             <option value="all">All Ages</option>
-            {AGE_BRACKETS.map(b => (<option key={b.label} value={b.label}>{b.label}</option>))}
+            {AGE_BRACKETS.map(b => <option key={b.label} value={b.label}>{b.label}</option>)}
           </select>
         </div>
       )}
 
       {loading ? (
         <div className="space-y-3">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
-          ))}
+          {[...Array(5)].map((_, i) => <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />)}
         </div>
       ) : entries.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
           <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>No entries yet. Be the first on the leaderboard!</p>
+          <p>No steps logged yet. Be the first on the leaderboard!</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -217,8 +212,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
             })}
           </AnimatePresence>
           {entries.length > showTop && (
-            <button onClick={() => setShowTop(prev => prev + 10)}
-              className="w-full py-2 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors">
+            <button onClick={() => setShowTop(p => p + 10)} className="w-full py-2 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors">
               Show more ({entries.length - showTop} remaining)
             </button>
           )}
