@@ -38,10 +38,17 @@ export default function AdminPage() {
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [editSlugValue, setEditSlugValue] = useState('')
   const [challengeForm, setChallengeForm] = useState({
-    title: '', start_date: '', start_time: '06:00',
-    end_date: '', end_time: '23:59', prize_amount: '',
-    participant_limit: '30', invite_only: true, paid_entry: false,
-    entry_fee: '', allowed_countries: ['New Zealand'] as string[],
+    title: '',
+    start_date: '',
+    start_time: '06:00',
+    end_date: '',
+    end_time: '23:59',
+    prize_amount: '',
+    participant_limit: '30',
+    invite_only: true,
+    paid_entry: false,
+    entry_fee: '',
+    allowed_countries: ['New Zealand'] as string[],
     custom_instructions: DEFAULT_INSTRUCTIONS,
   })
   const [sponsorForm, setSponsorForm] = useState({ name: '', logo_url: '', link: '', tagline: '', is_active: true })
@@ -67,37 +74,41 @@ export default function AdminPage() {
         active: subs.filter(s => s.subscription_status === 'active').length,
         trial: subs.filter(s => s.subscription_status === 'trial').length,
         revenue: subs.filter(s => s.subscription_status === 'active').length * 15,
-        stravaConnected: subs.filter(s => s.strava_connected).length,
       })
     }
+
     const today = new Date().toISOString().split('T')[0]
     const { data: logs } = await supabase.from('step_logs').select('*, profiles(full_name, email, subscription_status)').eq('date', today).order('steps', { ascending: false })
     if (logs) setStepLogs(logs)
+
     const { data: ch } = await supabase.from('challenges').select('*').order('created_at', { ascending: false })
     if (ch) {
-  setChallenges(ch)
-  const { data: allParticipants } = await supabase
-    .from('challenge_participants')
-    .select('*, profiles(id, full_name, email, country)')
-  if (allParticipants) {
-    const grouped: Record<string, any[]> = {}
-    allParticipants.forEach(p => {
-      if (!grouped[p.challenge_id]) grouped[p.challenge_id] = []
-      grouped[p.challenge_id].push(p)
-    })
-    setChallengeParticipants(grouped)
-  }
-}
+      setChallenges(ch)
+      const { data: allParticipants } = await supabase
+        .from('challenge_participants')
+        .select('*, profiles(id, full_name, email, country)')
+      if (allParticipants) {
+        const grouped: Record<string, any[]> = {}
+        allParticipants.forEach(p => {
+          if (!grouped[p.challenge_id]) grouped[p.challenge_id] = []
+          grouped[p.challenge_id].push(p)
+        })
+        setChallengeParticipants(grouped)
+      }
+    }
+
     const { data: sp } = await supabase.from('sponsors').select('*').order('display_order')
     if (sp) setSponsors(sp)
+
     const { data: fb } = await supabase.from('challenge_feedback').select('*, profiles(full_name, email)').order('created_at', { ascending: false })
     if (fb) setFeedback(fb)
+
     setLoading(false)
   }
 
   const exportEmails = () => {
-    const csv = ['Name,Email,Status,Strava Connected,Total Steps,Joined',
-      ...subscribers.map(s => [s.full_name||'', s.email, s.subscription_status, s.strava_connected?'Yes':'No', s.total_steps||0, new Date(s.created_at).toLocaleDateString('en-NZ')].join(','))
+    const csv = ['Name,Email,Status,Total Steps,Joined',
+      ...subscribers.map(s => [s.full_name||'', s.email, s.subscription_status, s.total_steps||0, new Date(s.created_at).toLocaleDateString('en-NZ')].join(','))
     ].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -137,9 +148,7 @@ export default function AdminPage() {
     title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Math.random().toString(36).substr(2, 6)
 
   const createChallenge = async () => {
-    if (!challengeForm.title || !challengeForm.start_date || !challengeForm.end_date) {
-      toast.error('Please fill in title, start date and end date'); return
-    }
+    if (!challengeForm.title || !challengeForm.start_date || !challengeForm.end_date) { toast.error('Please fill in title, start date and end date'); return }
     const slug = generateSlug(challengeForm.title)
     const { error } = await supabase.from('challenges').insert({
       title: challengeForm.title,
@@ -161,11 +170,7 @@ export default function AdminPage() {
   }
 
   const startEditChallenge = (ch: any) => {
-    setEditingChallenge({
-      ...ch,
-      prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '',
-      custom_instructions: ch.description || '',
-    })
+    setEditingChallenge({ ...ch, prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '', custom_instructions: ch.description || '' })
   }
 
   const saveEditChallenge = async () => {
@@ -202,26 +207,22 @@ export default function AdminPage() {
     if (!error) { toast.success('Link updated!'); setEditingSlug(null); fetchAll() }
     else toast.error('That link is already taken — try another')
   }
-const removeParticipant = async (participantId: string, challengeId: string) => {
-  const { error } = await supabase
-    .from('challenge_participants')
-    .delete()
-    .eq('id', participantId)
-  if (!error) {
-    const challenge = challenges.find(c => c.id === challengeId)
-    if (challenge) {
-      await supabase
-        .from('challenges')
-        .update({ current_participants: Math.max(0, (challenge.current_participants || 1) - 1) })
-        .eq('id', challengeId)
+
+  const removeParticipant = async (participantId: string, challengeId: string) => {
+    const { error } = await supabase.from('challenge_participants').delete().eq('id', participantId)
+    if (!error) {
+      const challenge = challenges.find(c => c.id === challengeId)
+      if (challenge) {
+        await supabase.from('challenges').update({ current_participants: Math.max(0, (challenge.current_participants || 1) - 1) }).eq('id', challengeId)
+      }
+      toast.success('Participant removed')
+      setConfirmRemoveParticipant(null)
+      fetchAll()
+    } else {
+      toast.error('Failed to remove participant')
     }
-    toast.success('Participant removed')
-    setConfirmRemoveParticipant(null)
-    fetchAll()
-  } else {
-    toast.error('Failed to remove participant')
   }
-}
+
   const copyLink = (slug: string) => {
     const url = `${window.location.origin}/join/${slug}`
     navigator.clipboard.writeText(url)
@@ -282,7 +283,8 @@ const removeParticipant = async (participantId: string, challengeId: string) => 
             { id: 'sponsors', label: '🤝 Sponsors' },
             { id: 'feedback', label: '💬 Feedback' },
           ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-cobalt-500 text-white' : 'bg-white dark:bg-lpr-card text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-lpr-border'}`}>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-cobalt-500 text-white' : 'bg-white dark:bg-lpr-card text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-lpr-border'}`}>
               {tab.label}
             </button>
           ))}
@@ -290,13 +292,12 @@ const removeParticipant = async (participantId: string, challengeId: string) => 
 
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
                 { label: 'Total Users', value: stats.total, color: 'text-cobalt-500' },
                 { label: 'Active Subs', value: stats.active, color: 'text-green-500' },
                 { label: 'On Trial', value: stats.trial, color: 'text-amber-500' },
                 { label: 'Monthly Revenue', value: `$${stats.revenue} NZD`, color: 'text-cobalt-500' },
-                { label: 'Strava Connected', value: stats.stravaConnected, color: 'text-orange-500' },
               ].map((stat, i) => (
                 <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }} className="card text-center space-y-2">
                   <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
@@ -329,7 +330,6 @@ const removeParticipant = async (participantId: string, challengeId: string) => 
                     <p className="text-sm text-gray-500">{sub.email}</p>
                     <div className="flex flex-wrap gap-2 mt-1">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(sub.subscription_status)}`}>{sub.subscription_status}</span>
-                      <span className={`text-xs ${sub.strava_connected ? 'text-orange-500' : 'text-gray-400'}`}>{sub.strava_connected ? '🟠 Strava' : '⚪ No Strava'}</span>
                       <span className="text-xs text-gray-400">{(sub.total_steps||0).toLocaleString()} steps</span>
                       <span className="text-xs text-gray-400">Joined {new Date(sub.created_at).toLocaleDateString('en-NZ')}</span>
                     </div>
@@ -451,7 +451,6 @@ const removeParticipant = async (participantId: string, challengeId: string) => 
               </motion.div>
             )}
 
-            {/* Edit Challenge Form */}
             {editingChallenge && (
               <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="card space-y-5 border-cobalt-500/50">
                 <div className="flex items-center justify-between">
@@ -528,35 +527,35 @@ const removeParticipant = async (participantId: string, challengeId: string) => 
                   )}
                 </div>
                 <div className="space-y-2 mt-3">
-            <p className="text-xs text-gray-400 font-medium">
-              👥 Participants ({(challengeParticipants[ch.id] || []).length}/{ch.participant_limit})
-            </p>
-            {(challengeParticipants[ch.id] || []).length === 0 ? (
-              <p className="text-xs text-gray-500 italic">No one has joined yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {(challengeParticipants[ch.id] || []).map(p => (
-                  <div key={p.id} className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 rounded-xl px-3 py-2">
-                    <div>
-                      <p className="text-sm dark:text-white font-medium">{p.profiles?.full_name || '—'}</p>
-                      <p className="text-xs text-gray-400">{p.profiles?.email}{p.profiles?.country ? ` · ${p.profiles.country}` : ''}</p>
+                  <p className="text-xs text-gray-400 font-medium">
+                    👥 Participants ({(challengeParticipants[ch.id] || []).length}/{ch.participant_limit})
+                  </p>
+                  {(challengeParticipants[ch.id] || []).length === 0 ? (
+                    <p className="text-xs text-gray-500 italic">No one has joined yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(challengeParticipants[ch.id] || []).map(p => (
+                        <div key={p.id} className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 rounded-xl px-3 py-2">
+                          <div>
+                            <p className="text-sm dark:text-white font-medium">{p.profiles?.full_name || '—'}</p>
+                            <p className="text-xs text-gray-400">{p.profiles?.email}{p.profiles?.country ? ` · ${p.profiles.country}` : ''}</p>
+                          </div>
+                          {confirmRemoveParticipant === p.id ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-red-400">Remove?</span>
+                              <button onClick={() => removeParticipant(p.id, ch.id)} className="text-xs px-2 py-1 rounded-lg bg-red-500 text-white">Yes</button>
+                              <button onClick={() => setConfirmRemoveParticipant(null)} className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">No</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setConfirmRemoveParticipant(p.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center gap-1">
+                              <Trash2 className="w-3 h-3" /> Remove
+                            </button>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    {confirmRemoveParticipant === p.id ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-red-400">Remove?</span>
-                        <button onClick={() => removeParticipant(p.id, ch.id)} className="text-xs px-2 py-1 rounded-lg bg-red-500 text-white">Yes</button>
-                        <button onClick={() => setConfirmRemoveParticipant(null)} className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">No</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => setConfirmRemoveParticipant(p.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 flex items-center gap-1">
-                        <Trash2 className="w-3 h-3" /> Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
