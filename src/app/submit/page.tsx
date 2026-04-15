@@ -19,6 +19,8 @@ export default function SubmitPage() {
   const [preview, setPreview] = useState<string | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [submitted, setSubmitted] = useState(false)
+  const [challengeStatus, setChallengeStatus] = useState<'loading' | 'not_started' | 'active' | 'ended' | 'no_challenge'>('loading')
+  const [challengeDates, setChallengeDates] = useState<{ start: string, end: string } | null>(null)
 
   const now = new Date()
   const cutoff = new Date()
@@ -30,9 +32,36 @@ export default function SubmitPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
       setUser(user)
+
       const today = new Date().toISOString().split('T')[0]
       const { data } = await supabase.from('step_logs').select('*').eq('user_id', user.id).eq('date', today).single()
       if (data) setTodayLog(data)
+
+      // Check challenge window upfront — handles users in multiple challenges
+      const { data: participations } = await supabase
+        .from('challenge_participants')
+        .select('challenges(start_date, end_date)')
+        .eq('user_id', user.id)
+      const allChallenges = (participations || []).map((p: any) => p.challenges).filter(Boolean)
+      const active = allChallenges.find((c: any) => today >= c.start_date && today <= c.end_date)
+
+      if (allChallenges.length === 0) {
+        setChallengeStatus('no_challenge')
+      } else if (active) {
+        setChallengeStatus('active')
+        setChallengeDates({ start: active.start_date, end: active.end_date })
+      } else {
+        const sorted = [...allChallenges].sort((a: any, b: any) => b.start_date.localeCompare(a.start_date))
+        const latest = sorted[0]
+        if (today < latest.start_date) {
+          setChallengeStatus('not_started')
+          setChallengeDates({ start: latest.start_date, end: latest.end_date })
+        } else {
+          setChallengeStatus('ended')
+          setChallengeDates({ start: latest.start_date, end: latest.end_date })
+        }
+      }
+
       setLoading(false)
     }
     init()
@@ -80,38 +109,35 @@ export default function SubmitPage() {
     const steps = parseInt(confirmedSteps)
     if (isNaN(steps) || steps < 0) { toast.error('Please enter a valid step count'); return }
     if (!photoFile) { toast.error('Please upload a photo of your steps'); return }
-    // Block submissions outside challenge window
-const today = new Date().toISOString().split('T')[0]
-const { data: participation } = await supabase
-  .from('challenge_participants')
-  .select('challenges(start_date, end_date)')
-  .eq('user_id', user.id)
-  .single()
-if (participation?.challenges) {
-  const ch = participation.challenges as any
-  if (today < ch.start_date) {
-    toast.error(`Challenge hasn't started yet — submissions open on ${ch.start_date}`)
-    return
-  }
-  if (today > ch.end_date) {
-    toast.error('This challenge has ended.')
-    return
-  }
-}
+
+    // Gate on challenge status already confirmed in useEffect
+    if (challengeStatus !== 'active') {
+      toast.error('Submissions are not open right now.')
+      return
+    }
+
     setUploading(true)
     try {
       let photoUrl = null
       const ext = photoFile.name.split('.').pop()
       const fileName = `${user.id}/${new Date().toISOString().split('T')[0]}.${ext}`
-      const { data: uploadData, error: uploadError } = await supabase.storage.from('step-photos').upload(fileName, photoFile, { upsert: true })
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('step-photos')
+        .upload(fileName, photoFile, { upsert: true })
       if (!uploadError && uploadData) {
         const { data: urlData } = supabase.storage.from('step-photos').getPublicUrl(fileName)
         photoUrl = urlData.publicUrl
       }
+
       const today = new Date().toISOString().split('T')[0]
       const { error } = await supabase.from('step_logs').upsert({
-        user_id: user.id, steps, date: today, source: 'photo', photo_url: photoUrl,
+        user_id: user.id,
+        steps,
+        date: today,
+        source: 'photo',
+        photo_url: photoUrl,
       }, { onConflict: 'user_id,date' })
+
       if (!error) {
         toast.success(`✅ ${steps.toLocaleString()} steps submitted!`)
         setTodayLog({ steps, source: 'photo', photo_url: photoUrl })
@@ -119,7 +145,9 @@ if (participation?.challenges) {
       } else {
         toast.error('Failed to save steps. Please try again.')
       }
-    } catch { toast.error('Something went wrong. Please try again.') }
+    } catch {
+      toast.error('Something went wrong. Please try again.')
+    }
     setUploading(false)
   }
 
@@ -140,7 +168,35 @@ if (participation?.challenges) {
         <div className="card bg-amber-500/10 border-amber-500/30">
           <p className="text-sm text-amber-500">⏰ Steps must be submitted before <strong>11:59pm today</strong> or they cannot be counted.</p>
         </div>
-        
+
+        {/* Upfront challenge status banners */}
+        {challengeStatus === 'not_started' && challengeDates && (
+          <div className="card bg-blue-500/10 border-blue-500/30 text-center py-6 space-y-2">
+            <p className="text-2xl">📅</p>
+            <h2 className="font-bold text-blue-400">Challenge Hasn't Started Yet</h2>
+            <p className="text-sm text-gray-400">Submissions open on <strong className="text-white">{challengeDates.start}</strong>. Check back then!</p>
+            <button onClick={() => router.push('/dashboard')} className="btn-secondary mx-auto mt-2">Back to Dashboard</button>
+          </div>
+        )}
+
+        {challengeStatus === 'ended' && (
+          <div className="card bg-red-500/10 border-red-500/30 text-center py-6 space-y-2">
+            <p className="text-2xl">🏁</p>
+            <h2 className="font-bold text-red-400">Challenge Has Ended</h2>
+            <p className="text-sm text-gray-400">This challenge is over. Thanks for competing!</p>
+            <button onClick={() => router.push('/dashboard')} className="btn-secondary mx-auto mt-2">Back to Dashboard</button>
+          </div>
+        )}
+
+        {challengeStatus === 'no_challenge' && (
+          <div className="card bg-gray-500/10 border-gray-500/30 text-center py-6 space-y-2">
+            <p className="text-2xl">🤔</p>
+            <h2 className="font-bold text-gray-400">No Active Challenge</h2>
+            <p className="text-sm text-gray-400">You're not enrolled in any challenge yet.</p>
+            <button onClick={() => router.push('/dashboard')} className="btn-secondary mx-auto mt-2">Back to Dashboard</button>
+          </div>
+        )}
+
         {isPastCutoff && (
           <div className="card bg-red-500/10 border-red-500/30 text-center py-8 space-y-2">
             <p className="text-2xl">🚫</p>
@@ -150,7 +206,8 @@ if (participation?.challenges) {
         )}
 
         {!isPastCutoff && (todayLog || submitted) && (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card bg-green-500/10 border-green-500/30 text-center py-8 space-y-3">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="card bg-green-500/10 border-green-500/30 text-center py-8 space-y-3">
             <CheckCircle className="w-12 h-12 text-green-500 mx-auto" />
             <h2 className="font-bold text-green-500 text-xl">Steps Submitted!</h2>
             <p className="text-2xl font-bold dark:text-white">{(todayLog?.steps || parseInt(confirmedSteps) || 0).toLocaleString()}</p>
@@ -159,16 +216,15 @@ if (participation?.challenges) {
           </motion.div>
         )}
 
-        {!isPastCutoff && !todayLog && !submitted && (
+        {!isPastCutoff && !todayLog && !submitted && challengeStatus === 'active' && (
           <div className="space-y-4">
             <div className="card space-y-4">
               <h2 className="font-bold dark:text-white">📸 Upload Your Step Photo</h2>
               <p className="text-sm text-gray-400">Take a screenshot of your Samsung Health, Apple Health, or fitness app showing your step count for today.</p>
-
               <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
-
               {!preview ? (
-                <button onClick={() => fileRef.current?.click()} className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-2xl p-8 flex flex-col items-center gap-3 hover:border-cobalt-500 transition-colors">
+                <button onClick={() => fileRef.current?.click()}
+                  className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-2xl p-8 flex flex-col items-center gap-3 hover:border-cobalt-500 transition-colors">
                   <Camera className="w-10 h-10 text-gray-400" />
                   <p className="font-medium dark:text-white">Tap to upload photo</p>
                   <p className="text-xs text-gray-400">Take a photo or choose from gallery</p>
@@ -184,7 +240,8 @@ if (participation?.challenges) {
                       </div>
                     )}
                   </div>
-                  <button onClick={() => { setPreview(null); setPhotoFile(null); setDetectedSteps(null); setConfirmedSteps('') }} className="text-sm text-cobalt-400 hover:text-cobalt-300">Choose different photo</button>
+                  <button onClick={() => { setPreview(null); setPhotoFile(null); setDetectedSteps(null); setConfirmedSteps('') }}
+                    className="text-sm text-cobalt-400 hover:text-cobalt-300">Choose different photo</button>
                 </div>
               )}
             </div>
@@ -208,7 +265,8 @@ if (participation?.challenges) {
                     <p className="text-xs text-green-500 mt-1">AI detected {detectedSteps.toLocaleString()} steps from your photo. You can correct this if needed.</p>
                   )}
                 </div>
-                <button onClick={handleSubmit} disabled={uploading || !confirmedSteps} className="btn-primary w-full flex items-center justify-center gap-2">
+                <button onClick={handleSubmit} disabled={uploading || !confirmedSteps}
+                  className="btn-primary w-full flex items-center justify-center gap-2">
                   {uploading ? <><RefreshCw className="w-4 h-4 animate-spin" /> Submitting...</> : '✅ Confirm & Submit Steps'}
                 </button>
               </motion.div>
