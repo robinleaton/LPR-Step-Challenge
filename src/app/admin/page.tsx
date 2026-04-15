@@ -19,7 +19,7 @@ Any questions? Message Robin directly. Good luck everyone — may the best walke
 export default function AdminPage() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'overview'|'subscribers'|'leaderboard'|'challenges'|'sponsors'|'feedback'>('overview')
-  const [stats, setStats] = useState({ total: 0, active: 0, trial: 0, revenue: 0, stravaConnected: 0 })
+  const [stats, setStats] = useState({ total: 0, active: 0, trial: 0, revenue: 0 })
   const [subscribers, setSubscribers] = useState<any[]>([])
   const [stepLogs, setStepLogs] = useState<any[]>([])
   const [challenges, setChallenges] = useState<any[]>([])
