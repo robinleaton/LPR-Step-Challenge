@@ -33,19 +33,39 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
   const fetchLeaderboard = async () => {
     if (!currentUserId) { setLoading(false); return }
 
-    // Step 1: find THIS user's active challenge
-    const { data: participation } = await supabase
+    const today = new Date().toISOString().split('T')[0]
+
+    // Step 1: get ALL challenges this user is in, pick the one active today
+    const { data: participations } = await supabase
       .from('challenge_participants')
       .select('challenge_id, challenges(id, title, start_date, end_date)')
       .eq('user_id', currentUserId)
-      .single()
 
-    const challenge = (participation?.challenges as any)
+    if (!participations || participations.length === 0) { setLoading(false); return }
+
+    // Pick challenge active today, else most recent
+    let challenge: any = null
+    for (const p of participations) {
+      const c = p.challenges as any
+      if (c && today >= c.start_date && today <= c.end_date) {
+        challenge = c
+        break
+      }
+    }
+    // Fallback: pick most recently started if none active today
+    if (!challenge) {
+      const sorted = participations
+        .map((p: any) => p.challenges)
+        .filter(Boolean)
+        .sort((a: any, b: any) => b.start_date.localeCompare(a.start_date))
+      challenge = sorted[0]
+    }
+
     if (!challenge) { setLoading(false); return }
 
     setChallengeDates({ start: challenge.start_date, end: challenge.end_date, title: challenge.title })
 
-    // Step 2: get all participants in this challenge with their profiles
+    // Step 2: get all participants in this challenge
     const { data: participants } = await supabase
       .from('challenge_participants')
       .select('user_id, profiles(id, full_name, gender, date_of_birth, is_subscribed, subscription_status)')
@@ -53,9 +73,8 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
 
     if (!participants || participants.length === 0) { setEntries([]); setLoading(false); return }
 
-    // Step 3: sum step_logs for each participant within challenge dates
+    // Step 3: sum step_logs within challenge dates
     const userIds = participants.map((p: any) => p.user_id)
-
     const { data: stepLogs } = await supabase
       .from('step_logs')
       .select('user_id, steps')
@@ -63,14 +82,14 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
       .gte('date', challenge.start_date)
       .lte('date', challenge.end_date)
 
-    // Step 4: aggregate steps per user
+    // Step 4: aggregate
     const stepsByUser: Record<string, number> = {}
     userIds.forEach((id: string) => { stepsByUser[id] = 0 })
     stepLogs?.forEach((log: any) => {
       stepsByUser[log.user_id] = (stepsByUser[log.user_id] || 0) + log.steps
     })
 
-    // Step 5: build leaderboard entries
+    // Step 5: build entries
     let result: LeaderboardEntry[] = participants.map((p: any) => ({
       id: p.profiles?.id || p.user_id,
       full_name: p.profiles?.full_name || 'Anonymous',
@@ -81,10 +100,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
       total_steps: stepsByUser[p.user_id] || 0,
     }))
 
-    // Apply gender filter
     if (genderFilter !== 'all') result = result.filter(e => e.gender === genderFilter)
-
-    // Apply age filter
     if (ageFilter !== 'all') {
       const bracket = AGE_BRACKETS.find(b => b.label === ageFilter)
       if (bracket) result = result.filter(e => {
@@ -93,7 +109,6 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
       })
     }
 
-    // Sort by steps descending
     result.sort((a, b) => b.total_steps - a.total_steps)
     setEntries(result)
     setLoading(false)
@@ -138,7 +153,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
 
       {challengeDates && (
         <p className="text-xs text-gray-400">
-          {challengeDates.title} · {challengeDates.start} → {challengeDates.end}
+          {challengeDates.title} · {challengeDates.start} to {challengeDates.end}
         </p>
       )}
 
@@ -152,7 +167,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
             {['all', 'male', 'female'].map(g => (
               <button key={g} onClick={() => setGenderFilter(g)}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${genderFilter === g ? 'bg-cobalt-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
-                {g === 'all' ? 'All' : g === 'male' ? '👨 Male' : '👩 Female'}
+                {g === 'all' ? 'All' : g === 'male' ? 'Male' : 'Female'}
               </button>
             ))}
           </div>
@@ -171,7 +186,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
       ) : entries.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
           <Trophy className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>No steps logged yet. Be the first on the leaderboard!</p>
+          <p>No steps logged yet. Be the first!</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -198,7 +213,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
                         {isCurrentUser && <span className="ml-1 text-xs text-cobalt-400">(you)</span>}
                       </p>
                       {entry.is_subscribed && (
-                        <span className="flex-shrink-0 text-xs bg-cobalt-500/20 text-cobalt-400 px-1.5 py-0.5 rounded-full">✓ Member</span>
+                        <span className="flex-shrink-0 text-xs bg-cobalt-500/20 text-cobalt-400 px-1.5 py-0.5 rounded-full">Member</span>
                       )}
                     </div>
                     <p className="text-xs text-gray-400">{stage.name}</p>
