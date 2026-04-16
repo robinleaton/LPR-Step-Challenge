@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
-import { Plus, Trash2, ArrowLeft, AlertTriangle, Mail, XCircle, Copy, Check, Pencil } from 'lucide-react'
+import { Plus, Trash2, ArrowLeft, AlertTriangle, Mail, XCircle, Copy, Check, Pencil, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const COUNTRIES = ['New Zealand','Australia','United Kingdom','United States','Rarotonga','Niue','Samoa','Tonga','Fiji']
@@ -37,6 +37,7 @@ export default function AdminPage() {
   const [confirmRemoveParticipant, setConfirmRemoveParticipant] = useState<string | null>(null)
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [editSlugValue, setEditSlugValue] = useState('')
+  const [enrolCount, setEnrolCount] = useState(0)
   const [challengeForm, setChallengeForm] = useState({
     title: '',
     start_date: '',
@@ -46,8 +47,7 @@ export default function AdminPage() {
     prize_amount: '',
     participant_limit: '30',
     invite_only: true,
-    paid_entry: false,
-    entry_fee: '',
+    auto_enrol_subscribers: false,
     allowed_countries: ['New Zealand'] as string[],
     custom_instructions: DEFAULT_INSTRUCTIONS,
   })
@@ -69,6 +69,8 @@ export default function AdminPage() {
     const { data: subs } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
     if (subs) {
       setSubscribers(subs)
+      const activeSubs = subs.filter(s => s.subscription_status === 'active' || s.subscription_status === 'trial')
+      setEnrolCount(activeSubs.length)
       setStats({
         total: subs.length,
         active: subs.filter(s => s.subscription_status === 'active').length,
@@ -148,9 +150,11 @@ export default function AdminPage() {
     title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Math.random().toString(36).substr(2, 6)
 
   const createChallenge = async () => {
-    if (!challengeForm.title || !challengeForm.start_date || !challengeForm.end_date) { toast.error('Please fill in title, start date and end date'); return }
+    if (!challengeForm.title || !challengeForm.start_date || !challengeForm.end_date) {
+      toast.error('Please fill in title, start date and end date'); return
+    }
     const slug = generateSlug(challengeForm.title)
-    const { error } = await supabase.from('challenges').insert({
+    const { data: newChallenge, error } = await supabase.from('challenges').insert({
       title: challengeForm.title,
       description: challengeForm.custom_instructions,
       start_date: challengeForm.start_date,
@@ -164,9 +168,68 @@ export default function AdminPage() {
       invite_slug: slug,
       is_active: true,
       current_participants: 0,
-    })
-    if (!error) { toast.success('Challenge created!'); setShowChallengeForm(false); fetchAll() }
-    else toast.error(error.message)
+    }).select().single()
+
+    if (error) { toast.error(error.message); return }
+
+    // ── Auto-enrol all active subscribers ────────────────────────────────
+    if (challengeForm.auto_enrol_subscribers && newChallenge) {
+      const activeSubs = subscribers.filter(s =>
+        s.subscription_status === 'active' || s.subscription_status === 'trial'
+      )
+      if (activeSubs.length > 0) {
+        const enrollments = activeSubs.map(s => ({
+          user_id: s.id,
+          challenge_id: newChallenge.id,
+        }))
+        const { error: enrollError } = await supabase
+          .from('challenge_participants')
+          .upsert(enrollments, { onConflict: 'user_id,challenge_id', ignoreDuplicates: true })
+
+        if (!enrollError) {
+          await supabase.from('challenges')
+            .update({ current_participants: activeSubs.length })
+            .eq('id', newChallenge.id)
+          toast.success(`✅ Challenge created + ${activeSubs.length} subscribers auto-enrolled!`)
+        } else {
+          toast.success('Challenge created! (Auto-enrol had an issue — check participants manually)')
+        }
+      } else {
+        toast.success('Challenge created! No active subscribers to enrol.')
+      }
+    } else {
+      toast.success('Challenge created!')
+    }
+
+    setShowChallengeForm(false)
+    fetchAll()
+  }
+
+  // ── Manual enrol all subscribers into an existing challenge ────────────
+  const enrolAllSubscribers = async (challengeId: string) => {
+    const activeSubs = subscribers.filter(s =>
+      s.subscription_status === 'active' || s.subscription_status === 'trial'
+    )
+    if (activeSubs.length === 0) { toast.error('No active subscribers to enrol'); return }
+
+    const enrollments = activeSubs.map(s => ({
+      user_id: s.id,
+      challenge_id: challengeId,
+    }))
+    const { error } = await supabase
+      .from('challenge_participants')
+      .upsert(enrollments, { onConflict: 'user_id,challenge_id', ignoreDuplicates: true })
+
+    if (!error) {
+      const challenge = challenges.find(c => c.id === challengeId)
+      const currentCount = (challengeParticipants[challengeId] || []).length
+      const newCount = Math.max(currentCount, activeSubs.length)
+      await supabase.from('challenges').update({ current_participants: newCount }).eq('id', challengeId)
+      toast.success(`✅ ${activeSubs.length} subscribers enrolled!`)
+      fetchAll()
+    } else {
+      toast.error('Enrol failed: ' + error.message)
+    }
   }
 
   const startEditChallenge = (ch: any) => {
@@ -442,6 +505,25 @@ export default function AdminPage() {
                     <input type="checkbox" checked={challengeForm.invite_only} onChange={e => setChallengeForm(p => ({ ...p, invite_only: e.target.checked }))} className="w-4 h-4 accent-cobalt-500" />
                     <span className="text-sm dark:text-gray-300">Invite only</span>
                   </label>
+
+                  {/* ── AUTO-ENROL CHECKBOX ── */}
+                  <label className={`flex items-center gap-2 cursor-pointer px-3 py-2 rounded-xl border transition-all ${challengeForm.auto_enrol_subscribers ? 'border-green-500 bg-green-500/10' : 'border-gray-200 dark:border-lpr-border'}`}>
+                    <input
+                      type="checkbox"
+                      checked={challengeForm.auto_enrol_subscribers}
+                      onChange={e => setChallengeForm(p => ({ ...p, auto_enrol_subscribers: e.target.checked }))}
+                      className="w-4 h-4 accent-green-500"
+                    />
+                    <div>
+                      <span className="text-sm dark:text-gray-300 font-medium flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5" />
+                        Auto-enrol all subscribers
+                      </span>
+                      {challengeForm.auto_enrol_subscribers && (
+                        <p className="text-xs text-green-500 mt-0.5">{enrolCount} active subscriber{enrolCount !== 1 ? 's' : ''} will be added automatically</p>
+                      )}
+                    </div>
+                  </label>
                 </div>
                 <div><label className="label">📝 Challenge Instructions</label><p className="text-xs text-gray-400 mb-2">Shown to participants on the join page.</p><textarea className="input" rows={6} value={challengeForm.custom_instructions} onChange={e => setChallengeForm(p => ({ ...p, custom_instructions: e.target.value }))} /></div>
                 <div className="flex gap-2">
@@ -507,6 +589,16 @@ export default function AdminPage() {
                   {ch.prize_pool?.length > 0 && <span>💰 ${ch.prize_pool[0].amount} NZD</span>}
                   {ch.allowed_countries?.length > 0 && <span>🌏 {ch.allowed_countries.join(', ')}</span>}
                 </div>
+
+                {/* ── Enrol all subscribers button on existing challenges ── */}
+                <button
+                  onClick={() => enrolAllSubscribers(ch.id)}
+                  className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all w-fit"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  Enrol all {enrolCount} subscribers
+                </button>
+
                 <div className="space-y-2">
                   <p className="text-xs text-gray-400 font-medium">Invite Link</p>
                   {editingSlug === ch.id ? (
