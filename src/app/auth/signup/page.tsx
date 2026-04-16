@@ -1,46 +1,54 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { motion, AnimatePresence } from 'framer-motion'
-import { supabase } from '@/lib/supabase'
-import { MaleAvatar } from '@/components/avatar/MaleAvatar'
-import { FemaleAvatar } from '@/components/avatar/FemaleAvatar'
-import { Eye, EyeOff, Mail, Lock, User, Calendar, CreditCard } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Eye, EyeOff, Tag } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 
+const WHY_EXAMPLES = [
+  'To keep up with my kids at the park',
+  'To prove to myself I can do hard things',
+  'To feel confident and energised every day',
+  'To win the prize and treat my family 🏆',
+]
+
 export default function SignupPage() {
   const router = useRouter()
-  const [step, setStep] = useState(1) // 1: details, 2: payment
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  
+  const [whyFocused, setWhyFocused] = useState(false)
+  const [showCoupon, setShowCoupon] = useState(false)
+
   const [form, setForm] = useState({
     fullName: '',
     email: '',
     password: '',
-    gender: '',
+    gender: 'male',
     dateOfBirth: '',
-    notificationEmail: true,
-    notificationPush: true,
+    motivationWhy: '',
+    couponCode: '',
   })
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
-  }
+  const set = (field: string, value: string) =>
+    setForm(p => ({ ...p, [field]: value }))
 
-  const handleStep1 = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.gender) { toast.error('Please select your gender'); return }
-    if (!form.dateOfBirth) { toast.error('Please enter your date of birth'); return }
-    setStep(2)
-  }
+  const handleSubmit = async () => {
+    if (!form.fullName || !form.email || !form.password) {
+      toast.error('Please fill in your name, email and password')
+      return
+    }
+    if (form.password.length < 6) {
+      toast.error('Password must be at least 6 characters')
+      return
+    }
 
-  const handleSignup = async () => {
     setLoading(true)
+
     try {
-      // 1. Create Stripe checkout session for trial
-      const stripeRes = await fetch('/api/stripe/create-checkout', {
+      // Store password temporarily so /auth/complete can log them in after Stripe
+      // We pass it as part of metadata so our complete-signup route can create the account
+      const res = await fetch('/api/stripe/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -48,203 +56,199 @@ export default function SignupPage() {
           fullName: form.fullName,
           gender: form.gender,
           dateOfBirth: form.dateOfBirth,
-          notificationEmail: form.notificationEmail,
-          notificationPush: form.notificationPush,
+          motivationWhy: form.motivationWhy.trim(),
+          couponCode: form.couponCode.trim(),
+          // Pass password so we can create the Supabase account after payment
+          password: form.password,
         }),
       })
-      const { url } = await stripeRes.json()
-      if (url) {
-        // Store signup data in sessionStorage temporarily
-        sessionStorage.setItem('pendingSignup', JSON.stringify({
-          email: form.email,
-          password: form.password,
-          fullName: form.fullName,
-          gender: form.gender,
-          dateOfBirth: form.dateOfBirth,
-          notificationEmail: form.notificationEmail,
-          notificationPush: form.notificationPush,
-        }))
-        window.location.href = url
+
+      const data = await res.json()
+
+      if (data.error) {
+        toast.error(data.error)
+        setLoading(false)
+        return
+      }
+
+      if (data.url) {
+        // Redirect to Stripe checkout
+        window.location.href = data.url
       }
     } catch (err) {
       toast.error('Something went wrong. Please try again.')
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-white dark:bg-lpr-black">
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md space-y-6"
-      >
-        {/* Header */}
-        <div className="text-center space-y-3">
-          <AnimatePresence mode="wait">
-            {form.gender === 'female' ? (
-              <motion.div key="female" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
-                <FemaleAvatar stage={1} size={100} animated />
-              </motion.div>
-            ) : (
-              <motion.div key="male" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
-                <MaleAvatar stage={1} size={100} animated />
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <div>
-            <h1 className="text-2xl font-bold dark:text-white">Join the Challenge</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">14 days free • Then $15 NZD/month</p>
-          </div>
+    <div className="min-h-screen bg-white dark:bg-lpr-black pb-10">
 
-          {/* Step indicator */}
-          <div className="flex items-center justify-center gap-2">
-            <div className={`w-8 h-2 rounded-full transition-all ${step >= 1 ? 'bg-cobalt-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-            <div className={`w-8 h-2 rounded-full transition-all ${step >= 2 ? 'bg-cobalt-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+      {/* Header */}
+      <div className="px-4 pt-12 pb-6"
+        style={{ background: 'linear-gradient(180deg, #0d1233 0%, transparent 100%)' }}>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+            style={{ background: 'linear-gradient(135deg, #3b5bff, #7c3aed)' }}>🏃</div>
+          <span className="font-black text-lg dark:text-white">LPR Step Challenge</span>
+        </div>
+        <h1 className="text-2xl font-black dark:text-white leading-tight mb-1">
+          Create your account
+        </h1>
+        <p className="text-sm text-gray-400">14-day free trial · then $15 NZD/month · cancel anytime</p>
+      </div>
+
+      {/* Trial banner */}
+      <div className="mx-4 mb-4 rounded-2xl p-4 flex items-center gap-3"
+        style={{ background: 'linear-gradient(135deg, #0d1a0d, #13131f)', border: '1px solid rgba(16,185,129,0.25)' }}>
+        <span className="text-2xl">🎁</span>
+        <div>
+          <div className="text-sm font-bold text-green-400">14 days free</div>
+          <div className="text-xs text-gray-400 mt-0.5">Card required · auto-charges after trial · cancel any time</div>
+        </div>
+      </div>
+
+      {/* Basic fields */}
+      <div className="card mx-4 mb-3 space-y-3">
+        <div>
+          <label className="label">Full name</label>
+          <input className="input" placeholder="John Doe"
+            value={form.fullName} onChange={e => set('fullName', e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Email</label>
+          <input className="input" type="email" placeholder="john@email.com"
+            value={form.email} onChange={e => set('email', e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Password</label>
+          <div className="relative">
+            <input className="input pr-10" type={showPassword ? 'text' : 'password'}
+              placeholder="Min. 6 characters"
+              value={form.password} onChange={e => set('password', e.target.value)} />
+            <button type="button" onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
         </div>
-
-        <div className="card">
-          {step === 1 && (
-            <form onSubmit={handleStep1} className="space-y-4">
-              <h2 className="font-bold dark:text-white">Your Details</h2>
-              
-              <div>
-                <label className="label">Full Name</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input name="fullName" type="text" value={form.fullName} onChange={handleChange}
-                    placeholder="Jane Smith" className="input pl-10" required />
-                </div>
-              </div>
-
-              <div>
-                <label className="label">Email</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input name="email" type="email" value={form.email} onChange={handleChange}
-                    placeholder="your@email.com" className="input pl-10" required />
-                </div>
-              </div>
-
-              <div>
-                <label className="label">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input name="password" type={showPassword ? 'text' : 'password'} value={form.password}
-                    onChange={handleChange} placeholder="Min 8 characters" className="input pl-10 pr-10"
-                    required minLength={8} />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="label">Gender</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { value: 'male', label: '👨 Male' },
-                    { value: 'female', label: '👩 Female' },
-                    { value: 'prefer_not_to_say', label: '🙂 Prefer not' },
-                  ].map(g => (
-                    <button key={g.value} type="button"
-                      onClick={() => setForm(prev => ({ ...prev, gender: g.value }))}
-                      className={`p-2 rounded-xl text-sm font-medium border-2 transition-all ${
-                        form.gender === g.value
-                          ? 'border-cobalt-500 bg-cobalt-500/10 text-cobalt-500'
-                          : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300'
-                      }`}>
-                      {g.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="label">Date of Birth</label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input name="dateOfBirth" type="date" value={form.dateOfBirth} onChange={handleChange}
-                    className="input pl-10" required max={new Date().toISOString().split('T')[0]} />
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Used for age-bracket prize categories</p>
-              </div>
-
-              {/* Notification preferences */}
-              <div>
-                <label className="label">Notifications</label>
-                <div className="space-y-2">
-                  {[
-                    { key: 'notificationEmail', label: '📧 Email reminders' },
-                    { key: 'notificationPush', label: '📱 Push notifications' },
-                  ].map(n => (
-                    <label key={n.key} className="flex items-center gap-3 cursor-pointer">
-                      <input type="checkbox"
-                        checked={form[n.key as keyof typeof form] as boolean}
-                        onChange={e => setForm(prev => ({ ...prev, [n.key]: e.target.checked }))}
-                        className="w-4 h-4 accent-cobalt-500" />
-                      <span className="text-sm dark:text-gray-300">{n.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <button type="submit" className="btn-primary w-full">
-                Continue to Payment →
+        <div>
+          <label className="label">Gender</label>
+          <div className="flex gap-2">
+            {['male', 'female'].map(g => (
+              <button key={g} onClick={() => set('gender', g)}
+                className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
+                  form.gender === g
+                    ? 'bg-cobalt-500/20 border-cobalt-500 text-cobalt-400'
+                    : 'border-gray-700 text-gray-500'
+                }`}>
+                {g === 'male' ? '👨 Male' : '👩 Female'}
               </button>
-            </form>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-4">
-              <button onClick={() => setStep(1)} className="text-sm text-cobalt-500 hover:text-cobalt-400">
-                ← Back
-              </button>
-              <h2 className="font-bold dark:text-white">Start Your Free Trial</h2>
-              
-              <div className="bg-cobalt-500/10 border border-cobalt-500/30 rounded-xl p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="dark:text-gray-300">LPR Step Challenge — Monthly</span>
-                  <span className="font-bold text-cobalt-500">$15 NZD/mo</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="dark:text-gray-300">14-day free trial</span>
-                  <span className="text-green-500 font-medium">$0 today</span>
-                </div>
-                <div className="border-t border-cobalt-500/20 pt-2 text-xs text-gray-400">
-                  Card required to start trial. You won't be charged for 14 days. Cancel anytime.
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <CreditCard className="w-4 h-4" />
-                <span>You'll be taken to Stripe's secure checkout to enter your card details</span>
-              </div>
-
-              <button
-                onClick={handleSignup}
-                disabled={loading}
-                className="btn-primary w-full"
-              >
-                {loading ? 'Setting up...' : '🔒 Start Free Trial'}
-              </button>
-
-              <p className="text-xs text-center text-gray-400">
-                Secured by Stripe. LPR never sees your card details.
-              </p>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
+        <div>
+          <label className="label">Date of birth</label>
+          <input className="input" type="date"
+            value={form.dateOfBirth} onChange={e => set('dateOfBirth', e.target.value)} />
+        </div>
+      </div>
 
-        <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-          Already have an account?{' '}
-          <Link href="/auth/login" className="text-cobalt-500 hover:text-cobalt-400 font-medium">
-            Sign in
-          </Link>
+      {/* Why field */}
+      <div className="mx-4 mb-3 rounded-2xl p-4 transition-all"
+        style={{
+          background: whyFocused ? 'linear-gradient(135deg, #0b1430, #13131f)' : 'linear-gradient(135deg, #0d0d1a, #111120)',
+          border: whyFocused ? '1px solid rgba(59,91,255,0.4)' : '1px solid rgba(59,91,255,0.2)',
+          transition: 'all 0.2s',
+        }}>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-base">💬</span>
+          <span className="text-sm font-bold dark:text-white">Why do you want to join?</span>
+          <span className="text-xs text-gray-600 ml-auto">optional</span>
+        </div>
+        <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+          Stays private. We'll use it to personalise your weekly motivation reminders.
         </p>
-      </motion.div>
+        <textarea
+          className="input"
+          rows={2}
+          placeholder="e.g. To keep up with my kids at the park..."
+          value={form.motivationWhy}
+          onFocus={() => setWhyFocused(true)}
+          onBlur={() => setWhyFocused(false)}
+          onChange={e => set('motivationWhy', e.target.value)}
+          style={{ resize: 'none', lineHeight: '1.5' }}
+        />
+        {form.motivationWhy.length > 4 && (
+          <motion.p
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-xs mt-2"
+            style={{ color: '#7c9dff' }}
+          >
+            ✨ Your weekly reminders will be personalised around this
+          </motion.p>
+        )}
+        {!form.motivationWhy && (
+          <div className="flex flex-col gap-1.5 mt-3">
+            {WHY_EXAMPLES.map((ex, i) => (
+              <button key={i} onClick={() => set('motivationWhy', ex)}
+                className="text-left text-xs text-gray-600 px-3 py-2 rounded-lg border border-gray-800 bg-white/5 hover:border-cobalt-500/50 hover:text-gray-400 transition-all leading-relaxed">
+                💡 "{ex}"
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Coupon code */}
+      <div className="mx-4 mb-4">
+        <button
+          onClick={() => setShowCoupon(!showCoupon)}
+          className="flex items-center gap-2 text-xs text-cobalt-400 font-semibold"
+        >
+          <Tag className="w-3.5 h-3.5" />
+          {showCoupon ? 'Hide coupon code' : 'Have a coupon code?'}
+        </button>
+        {showCoupon && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            className="mt-2"
+          >
+            <input
+              className="input"
+              placeholder="e.g. BUDS4WEEKS"
+              value={form.couponCode}
+              onChange={e => set('couponCode', e.target.value.toUpperCase())}
+              style={{ letterSpacing: '0.05em' }}
+            />
+            <p className="text-xs text-gray-500 mt-1.5">
+              Valid codes extend your free trial period. Card still required.
+            </p>
+          </motion.div>
+        )}
+      </div>
+
+      {/* CTA */}
+      <div className="mx-4 space-y-3">
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="btn-primary w-full flex items-center justify-center gap-2"
+        >
+          {loading
+            ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Setting up...</>
+            : 'Continue to Payment 🔒'}
+        </button>
+        <p className="text-center text-xs text-gray-600">
+          By signing up you agree to our terms. $15 NZD/month after your free trial.
+        </p>
+        <p className="text-center text-xs text-gray-500">
+          Already have an account?{' '}
+          <Link href="/auth/login" className="text-cobalt-400 hover:text-cobalt-300">Sign in</Link>
+        </p>
+      </div>
     </div>
   )
 }
