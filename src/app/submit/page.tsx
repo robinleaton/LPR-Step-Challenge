@@ -33,7 +33,7 @@ export default function SubmitPage() {
       if (!user) { router.push('/auth/login'); return }
       setUser(user)
 
-      const today = new Date().toISOString().split('T')[0]
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
 
       // Check today's existing log
       const { data } = await supabase
@@ -108,7 +108,7 @@ export default function SubmitPage() {
     try {
       let photoUrl = null
       const ext = photoFile.name.split('.').pop()
-      const fileName = `${user.id}/${new Date().toISOString().split('T')[0]}.${ext}`
+      const fileName = `${user.id}/${new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })}.${ext}`
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('step-photos')
         .upload(fileName, photoFile, { upsert: true })
@@ -117,7 +117,7 @@ export default function SubmitPage() {
         photoUrl = urlData.publicUrl
       }
 
-      const today = new Date().toISOString().split('T')[0]
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
       const { error } = await supabase.from('step_logs').upsert({
         user_id: user.id,
         steps,
