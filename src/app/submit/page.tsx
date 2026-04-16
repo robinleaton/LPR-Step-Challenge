@@ -19,8 +19,8 @@ export default function SubmitPage() {
   const [preview, setPreview] = useState<string | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [submitted, setSubmitted] = useState(false)
-  const [challengeStatus, setChallengeStatus] = useState<'loading' | 'not_started' | 'active' | 'ended' | 'no_challenge'>('loading')
-  const [challengeDates, setChallengeDates] = useState<{ start: string, end: string } | null>(null)
+  // Active challenge info — shown as context only, not a gate
+  const [activeChallenge, setActiveChallenge] = useState<{ title: string; start: string; end: string } | null>(null)
 
   const now = new Date()
   const cutoff = new Date()
@@ -34,32 +34,26 @@ export default function SubmitPage() {
       setUser(user)
 
       const today = new Date().toISOString().split('T')[0]
-      const { data } = await supabase.from('step_logs').select('*').eq('user_id', user.id).eq('date', today).single()
+
+      // Check today's existing log
+      const { data } = await supabase
+        .from('step_logs')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('date', today)
+        .single()
       if (data) setTodayLog(data)
 
-      // Check challenge window upfront — handles users in multiple challenges
+      // Check for an active challenge — informational only, not a gate
       const { data: participations } = await supabase
         .from('challenge_participants')
-        .select('challenges(start_date, end_date)')
+        .select('challenges(id, title, start_date, end_date)')
         .eq('user_id', user.id)
+
       const allChallenges = (participations || []).map((p: any) => p.challenges).filter(Boolean)
       const active = allChallenges.find((c: any) => today >= c.start_date && today <= c.end_date)
-
-      if (allChallenges.length === 0) {
-        setChallengeStatus('no_challenge')
-      } else if (active) {
-        setChallengeStatus('active')
-        setChallengeDates({ start: active.start_date, end: active.end_date })
-      } else {
-        const sorted = [...allChallenges].sort((a: any, b: any) => b.start_date.localeCompare(a.start_date))
-        const latest = sorted[0]
-        if (today < latest.start_date) {
-          setChallengeStatus('not_started')
-          setChallengeDates({ start: latest.start_date, end: latest.end_date })
-        } else {
-          setChallengeStatus('ended')
-          setChallengeDates({ start: latest.start_date, end: latest.end_date })
-        }
+      if (active) {
+        setActiveChallenge({ title: active.title, start: active.start_date, end: active.end_date })
       }
 
       setLoading(false)
@@ -110,12 +104,6 @@ export default function SubmitPage() {
     if (isNaN(steps) || steps < 0) { toast.error('Please enter a valid step count'); return }
     if (!photoFile) { toast.error('Please upload a photo of your steps'); return }
 
-    // Gate on challenge status already confirmed in useEffect
-    if (challengeStatus !== 'active') {
-      toast.error('Submissions are not open right now.')
-      return
-    }
-
     setUploading(true)
     try {
       let photoUrl = null
@@ -160,71 +148,80 @@ export default function SubmitPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-lpr-black px-4 py-8">
       <div className="max-w-lg mx-auto space-y-6">
+
+        {/* Header */}
         <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/dashboard')} className="text-cobalt-500 hover:text-cobalt-400"><ArrowLeft className="w-5 h-5" /></button>
+          <button onClick={() => router.push('/dashboard')} className="text-cobalt-500 hover:text-cobalt-400">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
           <h1 className="text-xl font-bold dark:text-white">Submit Today's Steps</h1>
         </div>
 
+        {/* Cutoff warning */}
         <div className="card bg-amber-500/10 border-amber-500/30">
-          <p className="text-sm text-amber-500">⏰ Steps must be submitted before <strong>11:59pm today</strong> or they cannot be counted.</p>
+          <p className="text-sm text-amber-500">
+            ⏰ Steps must be submitted before <strong>11:59pm today</strong> or they won't count.
+          </p>
         </div>
 
-        {/* Upfront challenge status banners */}
-        {challengeStatus === 'not_started' && challengeDates && (
-          <div className="card bg-blue-500/10 border-blue-500/30 text-center py-6 space-y-2">
-            <p className="text-2xl">📅</p>
-            <h2 className="font-bold text-blue-400">Challenge Hasn't Started Yet</h2>
-            <p className="text-sm text-gray-400">Submissions open on <strong className="text-white">{challengeDates.start}</strong>. Check back then!</p>
-            <button onClick={() => router.push('/dashboard')} className="btn-secondary mx-auto mt-2">Back to Dashboard</button>
+        {/* Active challenge context banner — informational only */}
+        {activeChallenge && (
+          <div className="card bg-cobalt-500/10 border-cobalt-500/30">
+            <p className="text-sm text-cobalt-400">
+              🏆 <strong>{activeChallenge.title}</strong> is live — your steps today count toward the challenge leaderboard.
+            </p>
           </div>
         )}
 
-        {challengeStatus === 'ended' && (
-          <div className="card bg-red-500/10 border-red-500/30 text-center py-6 space-y-2">
-            <p className="text-2xl">🏁</p>
-            <h2 className="font-bold text-red-400">Challenge Has Ended</h2>
-            <p className="text-sm text-gray-400">This challenge is over. Thanks for competing!</p>
-            <button onClick={() => router.push('/dashboard')} className="btn-secondary mx-auto mt-2">Back to Dashboard</button>
-          </div>
-        )}
-
-        {challengeStatus === 'no_challenge' && (
-          <div className="card bg-gray-500/10 border-gray-500/30 text-center py-6 space-y-2">
-            <p className="text-2xl">🤔</p>
-            <h2 className="font-bold text-gray-400">No Active Challenge</h2>
-            <p className="text-sm text-gray-400">You're not enrolled in any challenge yet.</p>
-            <button onClick={() => router.push('/dashboard')} className="btn-secondary mx-auto mt-2">Back to Dashboard</button>
-          </div>
-        )}
-
+        {/* Past cutoff */}
         {isPastCutoff && (
           <div className="card bg-red-500/10 border-red-500/30 text-center py-8 space-y-2">
             <p className="text-2xl">🚫</p>
             <h2 className="font-bold text-red-400">Submissions Closed</h2>
-            <p className="text-sm text-gray-400">Today's submission window has closed. Come back tomorrow!</p>
+            <p className="text-sm text-gray-400">Today's window has closed. Come back tomorrow!</p>
           </div>
         )}
 
+        {/* Already submitted today */}
         {!isPastCutoff && (todayLog || submitted) && (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-            className="card bg-green-500/10 border-green-500/30 text-center py-8 space-y-3">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card bg-green-500/10 border-green-500/30 text-center py-8 space-y-3"
+          >
             <CheckCircle className="w-12 h-12 text-green-500 mx-auto" />
             <h2 className="font-bold text-green-500 text-xl">Steps Submitted!</h2>
-            <p className="text-2xl font-bold dark:text-white">{(todayLog?.steps || parseInt(confirmedSteps) || 0).toLocaleString()}</p>
-            <p className="text-sm text-gray-400">Today's steps have been logged. See you tomorrow!</p>
-            <button onClick={() => router.push('/dashboard')} className="btn-primary mx-auto">View Leaderboard</button>
+            <p className="text-2xl font-bold dark:text-white">
+              {(todayLog?.steps || parseInt(confirmedSteps) || 0).toLocaleString()}
+            </p>
+            <p className="text-sm text-gray-400">Today's steps are logged. See you tomorrow!</p>
+            <button onClick={() => router.push('/dashboard')} className="btn-primary mx-auto">
+              View Leaderboard
+            </button>
           </motion.div>
         )}
 
-        {!isPastCutoff && !todayLog && !submitted && challengeStatus === 'active' && (
+        {/* Upload form — always available when not past cutoff and not submitted */}
+        {!isPastCutoff && !todayLog && !submitted && (
           <div className="space-y-4">
             <div className="card space-y-4">
               <h2 className="font-bold dark:text-white">📸 Upload Your Step Photo</h2>
-              <p className="text-sm text-gray-400">Take a screenshot of your Samsung Health, Apple Health, or fitness app showing your step count for today.</p>
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
+              <p className="text-sm text-gray-400">
+                Take a screenshot of Samsung Health, Apple Health, or any fitness app showing your step count for today.
+              </p>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handlePhotoSelect}
+              />
               {!preview ? (
-                <button onClick={() => fileRef.current?.click()}
-                  className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-2xl p-8 flex flex-col items-center gap-3 hover:border-cobalt-500 transition-colors">
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="w-full border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-2xl p-8 flex flex-col items-center gap-3 hover:border-cobalt-500 transition-colors"
+                >
                   <Camera className="w-10 h-10 text-gray-400" />
                   <p className="font-medium dark:text-white">Tap to upload photo</p>
                   <p className="text-xs text-gray-400">Take a photo or choose from gallery</p>
@@ -240,14 +237,22 @@ export default function SubmitPage() {
                       </div>
                     )}
                   </div>
-                  <button onClick={() => { setPreview(null); setPhotoFile(null); setDetectedSteps(null); setConfirmedSteps('') }}
-                    className="text-sm text-cobalt-400 hover:text-cobalt-300">Choose different photo</button>
+                  <button
+                    onClick={() => { setPreview(null); setPhotoFile(null); setDetectedSteps(null); setConfirmedSteps('') }}
+                    className="text-sm text-cobalt-400 hover:text-cobalt-300"
+                  >
+                    Choose different photo
+                  </button>
                 </div>
               )}
             </div>
 
             {(preview && !analyzing) && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="card space-y-4">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="card space-y-4"
+              >
                 <div>
                   <label className="label">
                     {detectedSteps ? '✅ Steps detected — confirm or correct:' : 'Enter your step count manually:'}
@@ -262,17 +267,25 @@ export default function SubmitPage() {
                     max="100000"
                   />
                   {detectedSteps && (
-                    <p className="text-xs text-green-500 mt-1">AI detected {detectedSteps.toLocaleString()} steps from your photo. You can correct this if needed.</p>
+                    <p className="text-xs text-green-500 mt-1">
+                      AI detected {detectedSteps.toLocaleString()} steps from your photo. You can correct this if needed.
+                    </p>
                   )}
                 </div>
-                <button onClick={handleSubmit} disabled={uploading || !confirmedSteps}
-                  className="btn-primary w-full flex items-center justify-center gap-2">
-                  {uploading ? <><RefreshCw className="w-4 h-4 animate-spin" /> Submitting...</> : '✅ Confirm & Submit Steps'}
+                <button
+                  onClick={handleSubmit}
+                  disabled={uploading || !confirmedSteps}
+                  className="btn-primary w-full flex items-center justify-center gap-2"
+                >
+                  {uploading
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> Submitting...</>
+                    : '✅ Confirm & Submit Steps'}
                 </button>
               </motion.div>
             )}
           </div>
         )}
+
       </div>
     </div>
   )
