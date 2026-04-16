@@ -1,11 +1,12 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { motion } from 'framer-motion'
 import { CheckCircle, XCircle } from 'lucide-react'
 
-export default function AuthCompletePage() {
+// Inner component that uses useSearchParams — must be inside Suspense
+function CompleteSignupInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const sessionId = searchParams.get('session_id')
@@ -26,7 +27,6 @@ export default function AuthCompletePage() {
     try {
       setMessage('Verifying your payment...')
 
-      // Call our API to complete the signup using the Stripe session
       const res = await fetch('/api/stripe/complete-signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -43,14 +43,13 @@ export default function AuthCompletePage() {
 
       setMessage('Logging you in...')
 
-      // Sign in the user with the credentials returned from our API
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
       })
 
       if (signInError) {
-        // User may already exist — try to get current session
+        // User may already be logged in — check for existing session
         const { data: { session } } = await supabase.auth.getSession()
         if (session) {
           setStatus('success')
@@ -115,16 +114,10 @@ export default function AuthCompletePage() {
               <p className="text-sm text-gray-400">{message}</p>
             </div>
             <div className="space-y-3">
-              <button
-                onClick={() => router.push('/auth/login')}
-                className="btn-primary w-full"
-              >
+              <button onClick={() => router.push('/auth/login')} className="btn-primary w-full">
                 Go to Login
               </button>
-              <button
-                onClick={() => router.push('/auth/signup')}
-                className="btn-secondary w-full"
-              >
+              <button onClick={() => router.push('/auth/signup')} className="btn-secondary w-full">
                 Try signing up again
               </button>
             </div>
@@ -132,5 +125,26 @@ export default function AuthCompletePage() {
         )}
       </motion.div>
     </div>
+  )
+}
+
+// Loading fallback while Suspense resolves
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen bg-white dark:bg-lpr-black flex items-center justify-center">
+      <div className="text-center space-y-4">
+        <div className="w-16 h-16 border-4 border-cobalt-500 border-t-transparent rounded-full animate-spin mx-auto" />
+        <p className="text-sm text-gray-400">Setting up your account...</p>
+      </div>
+    </div>
+  )
+}
+
+// Outer component wraps inner in Suspense — required by Next.js 14 for useSearchParams
+export default function AuthCompletePage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <CompleteSignupInner />
+    </Suspense>
   )
 }
