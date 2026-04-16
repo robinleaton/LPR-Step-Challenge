@@ -3,10 +3,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
-import { Trophy, Star, Zap, Target } from 'lucide-react'
-import { formatSteps, getAvatarStage, AGE_BRACKETS } from '@/lib/constants'
-
-const TODAY_STEPS = 6023 // will be replaced by real query below
+import { ArrowLeft, Home, Trophy, Camera, Flame, Calendar } from 'lucide-react'
+import { formatSteps, getAvatarStage } from '@/lib/constants'
 
 interface StreakData {
   currentStreak: number
@@ -41,7 +39,6 @@ export default function StreakPage() {
       const today = new Date()
       const todayStr = today.toISOString().split('T')[0]
 
-      // Get last 30 days of step logs
       const thirtyDaysAgo = new Date()
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
       const { data: logs } = await supabase
@@ -54,23 +51,19 @@ export default function StreakPage() {
       const logMap: Record<string, number> = {}
       logs?.forEach((l: any) => { logMap[l.date] = l.steps })
 
-      // Today's steps
       setTodaySteps(logMap[todayStr] || 0)
 
-      // Calculate current streak
+      // Current streak
       let streak = 0
       const check = new Date(today)
-      // if today has steps, start from today, else start from yesterday
       if (!logMap[todayStr]) check.setDate(check.getDate() - 1)
       while (true) {
         const k = check.toISOString().split('T')[0]
-        if (logMap[k] && logMap[k] > 0) {
-          streak++
-          check.setDate(check.getDate() - 1)
-        } else break
+        if (logMap[k] && logMap[k] > 0) { streak++; check.setDate(check.getDate() - 1) }
+        else break
       }
 
-      // Best streak (simplified: check last 30 days)
+      // Best streak
       let best = 0, cur = 0
       for (let i = 29; i >= 0; i--) {
         const d = new Date(); d.setDate(d.getDate() - i)
@@ -79,8 +72,8 @@ export default function StreakPage() {
         else cur = 0
       }
 
-      // This week (Mon–Sun)
-      const dayOfWeek = (today.getDay() + 6) % 7 // 0=Mon
+      // This week Mon–Sun
+      const dayOfWeek = (today.getDay() + 6) % 7
       const weekDays: StreakData['weekDays'] = []
       const labels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
       let weekGoalDays = 0
@@ -121,13 +114,21 @@ export default function StreakPage() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-lpr-black pb-24">
-      {/* Header */}
-      <div className="px-4 pt-12 pb-4"
+
+      {/* Header with back button */}
+      <div className="px-4 pt-12 pb-4 flex items-center gap-3"
         style={{ background: 'linear-gradient(180deg, #0d0d2a 0%, transparent 100%)' }}>
-        <p className="text-xs text-gray-400 mb-1">Your progress</p>
-        <h1 className="text-2xl font-bold dark:text-white" style={{ fontWeight: 800 }}>
-          Streak & Goals
-        </h1>
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="w-9 h-9 rounded-xl flex items-center justify-center transition-colors"
+          style={{ background: 'rgba(59,91,255,0.15)', border: '1px solid rgba(59,91,255,0.3)' }}
+        >
+          <ArrowLeft className="w-4 h-4 text-cobalt-400" />
+        </button>
+        <div>
+          <p className="text-xs text-gray-400">Your progress</p>
+          <h1 className="text-xl font-black dark:text-white leading-tight">Streak & Goals</h1>
+        </div>
       </div>
 
       {/* Streak Hero */}
@@ -271,7 +272,7 @@ export default function StreakPage() {
         className="card mx-4 mb-3"
       >
         <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Achievements</p>
-        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
           {[
             { icon: '🔥', label: '7-Day Streak', earned: streakData.currentStreak >= 7, gold: true },
             { icon: '🚀', label: 'First 10k Day', earned: true, gold: true },
@@ -296,13 +297,29 @@ export default function StreakPage() {
         </div>
       </motion.div>
 
+      {/* Bottom Nav */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex"
+        style={{ background: 'rgba(13,13,26,0.95)', backdropFilter: 'blur(20px)', borderTop: '1px solid #1e1e35' }}>
+        {[
+          { emoji: '🏠', label: 'Home', action: () => router.push('/dashboard'), active: false },
+          { emoji: '🏆', label: 'Board', action: () => router.push('/dashboard'), active: false },
+          { emoji: '📸', label: 'Submit', action: () => router.push('/submit'), active: false },
+          { emoji: '🔥', label: 'Streak', action: () => {}, active: true },
+          { emoji: '📅', label: 'Calendar', action: () => router.push('/app/calendar'), active: false },
+        ].map((item, i) => (
+          <button key={i} onClick={item.action}
+            className={`flex-1 flex flex-col items-center gap-1 py-2.5 pb-4 transition-opacity ${item.active ? 'opacity-100' : 'opacity-40'}`}>
+            <span className="text-xl">{item.emoji}</span>
+            <span className="text-[10px] font-bold text-cobalt-400">{item.label}</span>
+          </button>
+        ))}
+      </div>
+
       <style>{`
         @keyframes flicker {
           0%, 100% { transform: scale(1) rotate(-2deg); }
           50% { transform: scale(1.1) rotate(2deg); }
         }
-        .scrollbar-none::-webkit-scrollbar { display: none; }
-        .scrollbar-none { scrollbar-width: none; }
       `}</style>
     </div>
   )
