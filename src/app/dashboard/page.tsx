@@ -7,7 +7,7 @@ import { Leaderboard } from '@/components/leaderboard/Leaderboard'
 import { MaleAvatar } from '@/components/avatar/MaleAvatar'
 import { FemaleAvatar } from '@/components/avatar/FemaleAvatar'
 import { getAvatarStage, formatSteps } from '@/lib/constants'
-import { Home, Trophy, Camera, Flame, Calendar } from 'lucide-react'
+import { Home, Trophy, Camera, Flame, Calendar, Settings } from 'lucide-react'
 
 type Tab = 'home' | 'leaderboard'
 
@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [currentStreak, setCurrentStreak] = useState(0)
   const [challenge, setChallenge] = useState<any>(null)
   const [rank, setRank] = useState<number | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   useEffect(() => {
     const init = async () => {
@@ -33,7 +34,10 @@ export default function DashboardPage() {
         .select('*')
         .eq('id', user.id)
         .single()
-      if (prof) setProfile(prof)
+      if (prof) {
+        setProfile(prof)
+        setIsAdmin(prof.is_admin === true)
+      }
 
       const today = new Date().toISOString().split('T')[0]
 
@@ -104,10 +108,29 @@ export default function DashboardPage() {
       {activeTab === 'home' && (
         <div>
           {/* Header */}
-          <div className="px-4 pt-12 pb-5"
+          <div className="px-4 pt-12 pb-5 flex items-start justify-between"
             style={{ background: 'linear-gradient(180deg, #0d1233 0%, transparent 100%)' }}>
-            <p className="text-sm text-gray-400">{getGreeting()} 👋</p>
-            <h1 className="text-2xl font-black dark:text-white mt-1">{profile?.full_name?.split(' ')[0] || 'there'}</h1>
+            <div>
+              <p className="text-sm text-gray-400">{getGreeting()} 👋</p>
+              <h1 className="text-2xl font-black dark:text-white mt-1">
+                {profile?.full_name?.split(' ')[0] || 'there'}
+              </h1>
+            </div>
+            {/* Admin button — only visible to admin users */}
+            {isAdmin && (
+              <button
+                onClick={() => router.push('/admin')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all mt-1"
+                style={{
+                  background: 'rgba(59,91,255,0.15)',
+                  border: '1px solid rgba(59,91,255,0.35)',
+                  color: '#7c9dff',
+                }}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                Admin
+              </button>
+            )}
           </div>
 
           {/* Challenge card */}
@@ -139,7 +162,7 @@ export default function DashboardPage() {
             {[
               { val: todaySteps !== null ? todaySteps.toLocaleString() : '—', lbl: 'Steps today', color: 'text-cobalt-400' },
               { val: profile?.total_steps ? formatSteps(profile.total_steps) : '—', lbl: 'Total steps', color: 'text-green-400' },
-              { val: `${currentStreak}`, lbl: `Day streak 🔥`, color: 'text-amber-400' },
+              { val: `${currentStreak}`, lbl: 'Day streak 🔥', color: 'text-amber-400' },
               { val: stage.name, lbl: 'Avatar stage', color: 'text-purple-400' },
             ].map((s, i) => (
               <motion.div
@@ -175,7 +198,7 @@ export default function DashboardPage() {
             <span className="text-white/50 text-xl">→</span>
           </motion.div>
 
-          {/* Streak mini tap */}
+          {/* Streak mini */}
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -195,7 +218,7 @@ export default function DashboardPage() {
             <span className="ml-auto text-gray-500 text-xl">›</span>
           </motion.div>
 
-          {/* Motivation card */}
+          {/* Motivation / Why card */}
           {profile?.motivation_why && (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
@@ -236,7 +259,23 @@ export default function DashboardPage() {
 
       {activeTab === 'leaderboard' && (
         <div className="px-4 pt-12">
-          <h1 className="text-2xl font-black dark:text-white mb-4">Leaderboard</h1>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-black dark:text-white">Leaderboard</h1>
+            {isAdmin && (
+              <button
+                onClick={() => router.push('/admin')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold"
+                style={{
+                  background: 'rgba(59,91,255,0.15)',
+                  border: '1px solid rgba(59,91,255,0.35)',
+                  color: '#7c9dff',
+                }}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                Admin
+              </button>
+            )}
+          </div>
           <Leaderboard currentUserId={user?.id} showFilters={true} />
         </div>
       )}
@@ -245,11 +284,11 @@ export default function DashboardPage() {
       <div className="fixed bottom-0 left-0 right-0 z-50 flex"
         style={{ background: 'rgba(13,13,26,0.95)', backdropFilter: 'blur(20px)', borderTop: '1px solid #1e1e35' }}>
         {[
-          { icon: Home, emoji: '🏠', label: 'Home', action: () => setActiveTab('home'), active: activeTab === 'home' },
-          { icon: Trophy, emoji: '🏆', label: 'Board', action: () => setActiveTab('leaderboard'), active: activeTab === 'leaderboard' },
-          { icon: Camera, emoji: '📸', label: 'Submit', action: () => router.push('/submit'), active: false },
-          { icon: Flame, emoji: '🔥', label: 'Streak', action: () => router.push('/app/streak'), active: false },
-          { icon: Calendar, emoji: '📅', label: 'Calendar', action: () => router.push('/app/calendar'), active: false },
+          { emoji: '🏠', label: 'Home', action: () => setActiveTab('home'), active: activeTab === 'home' },
+          { emoji: '🏆', label: 'Board', action: () => setActiveTab('leaderboard'), active: activeTab === 'leaderboard' },
+          { emoji: '📸', label: 'Submit', action: () => router.push('/submit'), active: false },
+          { emoji: '🔥', label: 'Streak', action: () => router.push('/app/streak'), active: false },
+          { emoji: '📅', label: 'Calendar', action: () => router.push('/app/calendar'), active: false },
         ].map((item, i) => (
           <button key={i} onClick={item.action}
             className={`flex-1 flex flex-col items-center gap-1 py-2.5 pb-4 transition-opacity ${item.active ? 'opacity-100' : 'opacity-40'}`}>
