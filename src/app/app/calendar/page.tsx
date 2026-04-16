@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react'
 
 interface DayData {
   date: string
@@ -29,7 +29,6 @@ export default function CalendarPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth/login'); return }
 
-      // Get active challenge
       const { data: participations } = await supabase
         .from('challenge_participants')
         .select('challenges(start_date, end_date)')
@@ -41,7 +40,6 @@ export default function CalendarPage() {
       if (active) {
         setChallengeDates({ start: active.start_date, end: active.end_date })
 
-        // Get all step logs
         const { data: logs } = await supabase
           .from('step_logs')
           .select('date, steps')
@@ -53,7 +51,6 @@ export default function CalendarPage() {
         logs?.forEach((l: any) => { map[l.date] = l.steps })
         setDayMap(map)
 
-        // Calculate stats
         let done = 0, missed = 0, remaining = 0
         const start = new Date(active.start_date)
         const end = new Date(active.end_date)
@@ -86,7 +83,6 @@ export default function CalendarPage() {
     const firstDow = (new Date(calYear, calMonth, 1).getDay() + 6) % 7
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
     const cells = []
-
     for (let i = 0; i < firstDow; i++) cells.push(null)
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${calYear}-${String(calMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
@@ -97,7 +93,6 @@ export default function CalendarPage() {
 
   const fk = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1).replace('.0','')}k` : `${n}`
 
-  // Circumference for ring
   const r = 36, circ = 2 * Math.PI * r
   const offset = circ - (completionPct / 100) * circ
 
@@ -109,19 +104,25 @@ export default function CalendarPage() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-lpr-black pb-24">
-      {/* Header */}
-      <div className="px-4 pt-12 pb-4"
+
+      {/* Header with back button */}
+      <div className="px-4 pt-12 pb-4 flex items-center gap-3"
         style={{ background: 'linear-gradient(180deg, #0d1233 0%, transparent 100%)' }}>
-        <p className="text-xs text-gray-400 mb-1">Challenge overview</p>
-        <h1 className="text-2xl font-bold dark:text-white" style={{ fontWeight: 800 }}>Calendar</h1>
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="w-9 h-9 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+          style={{ background: 'rgba(59,91,255,0.15)', border: '1px solid rgba(59,91,255,0.3)' }}
+        >
+          <ArrowLeft className="w-4 h-4 text-cobalt-400" />
+        </button>
+        <div>
+          <p className="text-xs text-gray-400">Challenge overview</p>
+          <h1 className="text-xl font-black dark:text-white leading-tight">Calendar</h1>
+        </div>
       </div>
 
       {/* Completion Ring */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="card mx-4 mb-3"
-      >
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="card mx-4 mb-3">
         <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Challenge Completion</p>
         <div className="flex items-center gap-4">
           <svg width="88" height="88" viewBox="0 0 88 88">
@@ -129,8 +130,7 @@ export default function CalendarPage() {
             <circle cx="44" cy="44" r={r} fill="none"
               stroke="url(#ringGrad)" strokeWidth="9"
               strokeDasharray={circ} strokeDashoffset={offset}
-              strokeLinecap="round"
-              transform="rotate(-90 44 44)"
+              strokeLinecap="round" transform="rotate(-90 44 44)"
               style={{ transition: 'stroke-dashoffset 1s ease' }}
             />
             <defs>
@@ -145,7 +145,7 @@ export default function CalendarPage() {
             <div className="text-xs text-gray-400 mt-1">{stats.done} of {stats.total} challenge days done</div>
             <div className="text-xs mt-2 p-2 rounded-lg bg-gray-900 text-gray-500 leading-tight">
               Max still possible: <span className="text-amber-400 font-bold">
-                {Math.round(((stats.done + stats.remaining) / stats.total) * 100)}%
+                {stats.total > 0 ? Math.round(((stats.done + stats.remaining) / stats.total) * 100) : 0}%
               </span>
               <br />{stats.remaining} days left — every one counts
             </div>
@@ -154,12 +154,7 @@ export default function CalendarPage() {
       </motion.div>
 
       {/* Stats Row */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="card mx-4 mb-3"
-      >
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="card mx-4 mb-3">
         <div className="grid grid-cols-3 gap-2">
           {[
             { val: stats.done, lbl: 'Days Done', color: 'text-cobalt-400' },
@@ -175,33 +170,29 @@ export default function CalendarPage() {
       </motion.div>
 
       {/* Calendar */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="card mx-4 mb-3"
-      >
-        {/* Month nav */}
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="card mx-4 mb-3">
         <div className="flex items-center justify-between mb-3">
-          <button onClick={() => { let m = calMonth - 1, y = calYear; if (m < 0) { m = 11; y-- } setCalMonth(m); setCalYear(y) }}
-            className="w-8 h-8 rounded-lg border border-gray-700 bg-gray-800 text-gray-400 flex items-center justify-center hover:border-cobalt-500 transition-colors">
+          <button
+            onClick={() => { let m = calMonth - 1, y = calYear; if (m < 0) { m = 11; y-- } setCalMonth(m); setCalYear(y) }}
+            className="w-8 h-8 rounded-lg border border-gray-700 bg-gray-800 text-gray-400 flex items-center justify-center hover:border-cobalt-500 transition-colors"
+          >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <span className="font-bold dark:text-white text-base">{monthNames[calMonth]} {calYear}</span>
-          <button onClick={() => { let m = calMonth + 1, y = calYear; if (m > 11) { m = 0; y++ } setCalMonth(m); setCalYear(y) }}
-            className="w-8 h-8 rounded-lg border border-gray-700 bg-gray-800 text-gray-400 flex items-center justify-center hover:border-cobalt-500 transition-colors">
+          <button
+            onClick={() => { let m = calMonth + 1, y = calYear; if (m > 11) { m = 0; y++ } setCalMonth(m); setCalYear(y) }}
+            className="w-8 h-8 rounded-lg border border-gray-700 bg-gray-800 text-gray-400 flex items-center justify-center hover:border-cobalt-500 transition-colors"
+          >
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Day labels */}
         <div className="grid grid-cols-7 gap-1 mb-1">
           {['M','T','W','T','F','S','S'].map((d, i) => (
             <div key={i} className="text-center text-[10px] font-bold text-gray-600 py-1">{d}</div>
           ))}
         </div>
 
-        {/* Day cells */}
         <div className="grid grid-cols-7 gap-1">
           {buildGrid().map((cell, i) => {
             if (!cell) return <div key={i} />
@@ -209,32 +200,24 @@ export default function CalendarPage() {
               <div key={i}
                 onClick={e => {
                   if (cell.status === 'done' || cell.status === 'miss' || cell.status === 'today') {
-                    setTooltip({
-                      text: cell.status === 'miss' ? 'No steps logged' : `${cell.steps.toLocaleString()} steps`,
-                      x: e.clientX, y: e.clientY,
-                    })
+                    setTooltip({ text: cell.status === 'miss' ? 'No steps logged' : `${cell.steps.toLocaleString()} steps`, x: e.clientX, y: e.clientY })
                     setTimeout(() => setTooltip(null), 1800)
                   }
                 }}
                 className={`aspect-square rounded-lg flex flex-col items-center justify-center text-[11px] font-bold cursor-pointer transition-transform active:scale-90 ${
-                  cell.status === 'today'
-                    ? 'text-white shadow-lg shadow-cobalt-500/40'
-                    : cell.status === 'done'
-                    ? 'text-cobalt-400'
-                    : cell.status === 'miss'
-                    ? 'text-gray-600'
-                    : 'text-gray-700'
+                  cell.status === 'today' ? 'text-white shadow-lg shadow-cobalt-500/40'
+                  : cell.status === 'done' ? 'text-cobalt-400'
+                  : cell.status === 'miss' ? 'text-gray-600'
+                  : 'text-gray-700'
                 }`}
                 style={{
-                  background:
-                    cell.status === 'today' ? '#3b5bff' :
-                    cell.status === 'done' ? 'rgba(59,91,255,0.15)' :
-                    cell.status === 'miss' ? 'rgba(255,0,0,0.05)' :
-                    cell.status === 'future' ? '#0d0d1a' : 'transparent',
-                  border:
-                    cell.status === 'today' ? 'none' :
-                    cell.status === 'done' ? '1px solid rgba(59,91,255,0.25)' :
-                    cell.status === 'miss' ? '1px solid rgba(255,0,0,0.1)' : 'none',
+                  background: cell.status === 'today' ? '#3b5bff'
+                    : cell.status === 'done' ? 'rgba(59,91,255,0.15)'
+                    : cell.status === 'miss' ? 'rgba(255,0,0,0.05)'
+                    : cell.status === 'future' ? '#0d0d1a' : 'transparent',
+                  border: cell.status === 'today' ? 'none'
+                    : cell.status === 'done' ? '1px solid rgba(59,91,255,0.25)'
+                    : cell.status === 'miss' ? '1px solid rgba(255,0,0,0.1)' : 'none',
                   animation: cell.status === 'today' ? 'calPulse 2s ease-in-out infinite' : undefined,
                 }}
               >
@@ -249,12 +232,11 @@ export default function CalendarPage() {
           })}
         </div>
 
-        {/* Legend */}
         <div className="flex gap-3 mt-4 flex-wrap">
           {[
             { color: 'rgba(59,91,255,0.3)', border: 'rgba(59,91,255,0.4)', label: 'Steps logged' },
             { color: 'rgba(255,0,0,0.08)', border: 'rgba(255,0,0,0.2)', label: 'Missed' },
-            { color: '#3b5bff', border: 'none', label: 'Today', textColor: '#fff' },
+            { color: '#3b5bff', border: 'none', label: 'Today' },
           ].map((l, i) => (
             <div key={i} className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-sm" style={{ background: l.color, border: `1px solid ${l.border}` }} />
@@ -271,6 +253,24 @@ export default function CalendarPage() {
           {tooltip.text}
         </div>
       )}
+
+      {/* Bottom Nav */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex"
+        style={{ background: 'rgba(13,13,26,0.95)', backdropFilter: 'blur(20px)', borderTop: '1px solid #1e1e35' }}>
+        {[
+          { emoji: '🏠', label: 'Home', action: () => router.push('/dashboard'), active: false },
+          { emoji: '🏆', label: 'Board', action: () => router.push('/dashboard'), active: false },
+          { emoji: '📸', label: 'Submit', action: () => router.push('/submit'), active: false },
+          { emoji: '🔥', label: 'Streak', action: () => router.push('/app/streak'), active: false },
+          { emoji: '📅', label: 'Calendar', action: () => {}, active: true },
+        ].map((item, i) => (
+          <button key={i} onClick={item.action}
+            className={`flex-1 flex flex-col items-center gap-1 py-2.5 pb-4 transition-opacity ${item.active ? 'opacity-100' : 'opacity-40'}`}>
+            <span className="text-xl">{item.emoji}</span>
+            <span className="text-[10px] font-bold text-cobalt-400">{item.label}</span>
+          </button>
+        ))}
+      </div>
 
       <style>{`
         @keyframes calPulse {
