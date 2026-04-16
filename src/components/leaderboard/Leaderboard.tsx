@@ -29,75 +29,120 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
   const [ageFilter, setAgeFilter] = useState<string>('all')
   const [showTop, setShowTop] = useState(10)
   const [challengeDates, setChallengeDates] = useState<{ start: string, end: string, title: string } | null>(null)
+  // 'challenge' = scoped to a specific challenge, 'subscriber' = all-time subscriber board
+  const [mode, setMode] = useState<'challenge' | 'subscriber'>('challenge')
 
   const fetchLeaderboard = async () => {
     if (!currentUserId) { setLoading(false); return }
 
     const today = new Date().toISOString().split('T')[0]
 
-    // Step 1: get ALL challenges this user is in, pick the one active today
+    // ── Try to find an active or recent challenge ──────────────────────────
     const { data: participations } = await supabase
       .from('challenge_participants')
       .select('challenge_id, challenges(id, title, start_date, end_date)')
       .eq('user_id', currentUserId)
 
-    if (!participations || participations.length === 0) { setLoading(false); return }
-
-    // Pick challenge active today, else most recent
     let challenge: any = null
-    for (const p of participations) {
-      const c = p.challenges as any
-      if (c && today >= c.start_date && today <= c.end_date) {
-        challenge = c
-        break
+
+    if (participations && participations.length > 0) {
+      // Pick active challenge today first
+      for (const p of participations) {
+        const c = p.challenges as any
+        if (c && today >= c.start_date && today <= c.end_date) {
+          challenge = c
+          break
+        }
+      }
+      // Fallback: most recently started
+      if (!challenge) {
+        const sorted = participations
+          .map((p: any) => p.challenges)
+          .filter(Boolean)
+          .sort((a: any, b: any) => b.start_date.localeCompare(a.start_date))
+        challenge = sorted[0]
       }
     }
-    // Fallback: pick most recently started if none active today
-    if (!challenge) {
-      const sorted = participations
-        .map((p: any) => p.challenges)
-        .filter(Boolean)
-        .sort((a: any, b: any) => b.start_date.localeCompare(a.start_date))
-      challenge = sorted[0]
+
+    // ── Challenge mode ─────────────────────────────────────────────────────
+    if (challenge) {
+      setMode('challenge')
+      setChallengeDates({ start: challenge.start_date, end: challenge.end_date, title: challenge.title })
+
+      const { data: participants } = await supabase
+        .from('challenge_participants')
+        .select('user_id, profiles(id, full_name, gender, date_of_birth, is_subscribed, subscription_status)')
+        .eq('challenge_id', challenge.id)
+
+      if (!participants || participants.length === 0) {
+        setEntries([])
+        setLoading(false)
+        return
+      }
+
+      const userIds = participants.map((p: any) => p.user_id)
+      const { data: stepLogs } = await supabase
+        .from('step_logs')
+        .select('user_id, steps')
+        .in('user_id', userIds)
+        .gte('date', challenge.start_date)
+        .lte('date', challenge.end_date)
+
+      const stepsByUser: Record<string, number> = {}
+      userIds.forEach((id: string) => { stepsByUser[id] = 0 })
+      stepLogs?.forEach((log: any) => {
+        stepsByUser[log.user_id] = (stepsByUser[log.user_id] || 0) + log.steps
+      })
+
+      let result: LeaderboardEntry[] = participants.map((p: any) => ({
+        id: p.profiles?.id || p.user_id,
+        full_name: p.profiles?.full_name || 'Anonymous',
+        gender: p.profiles?.gender || 'male',
+        date_of_birth: p.profiles?.date_of_birth || '',
+        is_subscribed: p.profiles?.is_subscribed || false,
+        subscription_status: p.profiles?.subscription_status || '',
+        total_steps: stepsByUser[p.user_id] || 0,
+      }))
+
+      if (genderFilter !== 'all') result = result.filter(e => e.gender === genderFilter)
+      if (ageFilter !== 'all') {
+        const bracket = AGE_BRACKETS.find(b => b.label === ageFilter)
+        if (bracket) result = result.filter(e => {
+          const age = e.date_of_birth ? getAge(e.date_of_birth) : 0
+          return age >= bracket.min && age <= bracket.max
+        })
+      }
+      result.sort((a, b) => b.total_steps - a.total_steps)
+      setEntries(result)
+      setLoading(false)
+      return
     }
 
-    if (!challenge) { setLoading(false); return }
+    // ── Subscriber fallback mode — no challenge found ──────────────────────
+    // Show all active subscribers ranked by total_steps (lifetime)
+    setMode('subscriber')
+    setChallengeDates(null)
 
-    setChallengeDates({ start: challenge.start_date, end: challenge.end_date, title: challenge.title })
+    const { data: subscribers } = await supabase
+      .from('profiles')
+      .select('id, full_name, gender, date_of_birth, total_steps, is_subscribed, subscription_status')
+      .in('subscription_status', ['active', 'trial'])
+      .order('total_steps', { ascending: false })
 
-    // Step 2: get all participants in this challenge
-    const { data: participants } = await supabase
-      .from('challenge_participants')
-      .select('user_id, profiles(id, full_name, gender, date_of_birth, is_subscribed, subscription_status)')
-      .eq('challenge_id', challenge.id)
+    if (!subscribers || subscribers.length === 0) {
+      setEntries([])
+      setLoading(false)
+      return
+    }
 
-    if (!participants || participants.length === 0) { setEntries([]); setLoading(false); return }
-
-    // Step 3: sum step_logs within challenge dates
-    const userIds = participants.map((p: any) => p.user_id)
-    const { data: stepLogs } = await supabase
-      .from('step_logs')
-      .select('user_id, steps')
-      .in('user_id', userIds)
-      .gte('date', challenge.start_date)
-      .lte('date', challenge.end_date)
-
-    // Step 4: aggregate
-    const stepsByUser: Record<string, number> = {}
-    userIds.forEach((id: string) => { stepsByUser[id] = 0 })
-    stepLogs?.forEach((log: any) => {
-      stepsByUser[log.user_id] = (stepsByUser[log.user_id] || 0) + log.steps
-    })
-
-    // Step 5: build entries
-    let result: LeaderboardEntry[] = participants.map((p: any) => ({
-      id: p.profiles?.id || p.user_id,
-      full_name: p.profiles?.full_name || 'Anonymous',
-      gender: p.profiles?.gender || 'male',
-      date_of_birth: p.profiles?.date_of_birth || '',
-      is_subscribed: p.profiles?.is_subscribed || false,
-      subscription_status: p.profiles?.subscription_status || '',
-      total_steps: stepsByUser[p.user_id] || 0,
+    let result: LeaderboardEntry[] = subscribers.map((s: any) => ({
+      id: s.id,
+      full_name: s.full_name || 'Anonymous',
+      gender: s.gender || 'male',
+      date_of_birth: s.date_of_birth || '',
+      is_subscribed: s.is_subscribed || false,
+      subscription_status: s.subscription_status || '',
+      total_steps: s.total_steps || 0,
     }))
 
     if (genderFilter !== 'all') result = result.filter(e => e.gender === genderFilter)
@@ -108,7 +153,6 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
         return age >= bracket.min && age <= bracket.max
       })
     }
-
     result.sort((a, b) => b.total_steps - a.total_steps)
     setEntries(result)
     setLoading(false)
@@ -140,6 +184,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Trophy className="w-6 h-6 text-cobalt-500" />
@@ -151,12 +196,22 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
         </div>
       </div>
 
-      {challengeDates && (
+      {/* Context label */}
+      {mode === 'challenge' && challengeDates && (
         <p className="text-xs text-gray-400">
           {challengeDates.title} · {challengeDates.start} to {challengeDates.end}
         </p>
       )}
+      {mode === 'subscriber' && (
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-gray-400">All members · lifetime steps</p>
+          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-cobalt-500/20 text-cobalt-400 border border-cobalt-500/30">
+            No active challenge
+          </span>
+        </div>
+      )}
 
+      {/* Filters */}
       {showFilters && (
         <div className="flex flex-wrap gap-2">
           <div className="flex items-center gap-1">
@@ -166,22 +221,32 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
           <div className="flex gap-1">
             {['all', 'male', 'female'].map(g => (
               <button key={g} onClick={() => setGenderFilter(g)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${genderFilter === g ? 'bg-cobalt-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                  genderFilter === g
+                    ? 'bg-cobalt-500 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                }`}>
                 {g === 'all' ? 'All' : g === 'male' ? 'Male' : 'Female'}
               </button>
             ))}
           </div>
-          <select value={ageFilter} onChange={e => setAgeFilter(e.target.value)}
-            className="px-3 py-1 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-none outline-none">
+          <select
+            value={ageFilter}
+            onChange={e => setAgeFilter(e.target.value)}
+            className="px-3 py-1 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-none outline-none"
+          >
             <option value="all">All Ages</option>
             {AGE_BRACKETS.map(b => <option key={b.label} value={b.label}>{b.label}</option>)}
           </select>
         </div>
       )}
 
+      {/* Entries */}
       {loading ? (
         <div className="space-y-3">
-          {[...Array(5)].map((_, i) => <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />)}
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+          ))}
         </div>
       ) : entries.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
@@ -196,10 +261,14 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
               const rank = index + 1
               const stage = getAvatarStage(entry.total_steps)
               return (
-                <motion.div key={entry.id} layout
-                  initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+                <motion.div
+                  key={entry.id}
+                  layout
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${getRankBg(rank, isCurrentUser)}`}>
+                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${getRankBg(rank, isCurrentUser)}`}
+                >
                   <div className="flex items-center justify-center w-8">{getRankIcon(rank)}</div>
                   <div className="flex-shrink-0">
                     {entry.gender === 'female'
@@ -213,7 +282,9 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
                         {isCurrentUser && <span className="ml-1 text-xs text-cobalt-400">(you)</span>}
                       </p>
                       {entry.is_subscribed && (
-                        <span className="flex-shrink-0 text-xs bg-cobalt-500/20 text-cobalt-400 px-1.5 py-0.5 rounded-full">Member</span>
+                        <span className="flex-shrink-0 text-xs bg-cobalt-500/20 text-cobalt-400 px-1.5 py-0.5 rounded-full">
+                          Member
+                        </span>
                       )}
                     </div>
                     <p className="text-xs text-gray-400">{stage.name}</p>
@@ -227,7 +298,10 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
             })}
           </AnimatePresence>
           {entries.length > showTop && (
-            <button onClick={() => setShowTop(p => p + 10)} className="w-full py-2 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors">
+            <button
+              onClick={() => setShowTop(p => p + 10)}
+              className="w-full py-2 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors"
+            >
               Show more ({entries.length - showTop} remaining)
             </button>
           )}
