@@ -78,17 +78,13 @@ export default function AdminPage() {
         revenue: subs.filter(s => s.subscription_status === 'active').length * 15,
       })
     }
-
     const today = new Date().toISOString().split('T')[0]
     const { data: logs } = await supabase.from('step_logs').select('*, profiles(full_name, email, subscription_status)').eq('date', today).order('steps', { ascending: false })
     if (logs) setStepLogs(logs)
-
     const { data: ch } = await supabase.from('challenges').select('*').order('created_at', { ascending: false })
     if (ch) {
       setChallenges(ch)
-      const { data: allParticipants } = await supabase
-        .from('challenge_participants')
-        .select('*, profiles(id, full_name, email, country)')
+      const { data: allParticipants } = await supabase.from('challenge_participants').select('*, profiles(id, full_name, email, country)')
       if (allParticipants) {
         const grouped: Record<string, any[]> = {}
         allParticipants.forEach(p => {
@@ -98,13 +94,10 @@ export default function AdminPage() {
         setChallengeParticipants(grouped)
       }
     }
-
     const { data: sp } = await supabase.from('sponsors').select('*').order('display_order')
     if (sp) setSponsors(sp)
-
     const { data: fb } = await supabase.from('challenge_feedback').select('*, profiles(full_name, email)').order('created_at', { ascending: false })
     if (fb) setFeedback(fb)
-
     setLoading(false)
   }
 
@@ -118,17 +111,50 @@ export default function AdminPage() {
     toast.success('CSV exported!')
   }
 
+  // Cancel subscription only — keeps account, stops Stripe
   const cancelSubscription = async (userId: string) => {
-    const { error } = await supabase.from('profiles').update({ subscription_status: 'cancelled', is_subscribed: false }).eq('id', userId)
-    if (!error) { toast.success('Subscription cancelled'); setConfirmCancel(null); fetchAll() }
-    else toast.error('Failed to cancel')
+    const sub = subscribers.find(s => s.id === userId)
+
+    // Cancel in Stripe if they have a subscription ID
+    if (sub?.stripe_subscription_id) {
+      try {
+        await fetch('/api/admin/cancel-stripe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscriptionId: sub.stripe_subscription_id }),
+        })
+      } catch {}
+    }
+
+    const { error } = await supabase.from('profiles')
+      .update({ subscription_status: 'cancelled', is_subscribed: false })
+      .eq('id', userId)
+
+    if (!error) {
+      toast.success('Subscription cancelled — Stripe payments stopped')
+      setConfirmCancel(null)
+      fetchAll()
+    } else {
+      toast.error('Failed to cancel')
+    }
   }
 
+  // Full delete — cancels Stripe + deletes account + all data
   const deleteAccount = async (userId: string) => {
-    const response = await fetch('/api/admin/delete-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) })
+    const response = await fetch('/api/admin/delete-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, cancelStripe: true }),
+    })
     const data = await response.json()
-    if (data.success) { toast.success('Account deleted'); setConfirmDelete(null); fetchAll() }
-    else toast.error(data.error || 'Failed to delete')
+    if (data.success) {
+      const stripeMsg = data.stripesCancelled ? ' · Stripe subscription cancelled' : ''
+      toast.success(`Account deleted${stripeMsg}`)
+      setConfirmDelete(null)
+      fetchAll()
+    } else {
+      toast.error(data.error || 'Failed to delete')
+    }
   }
 
   const overrideSteps = async (userId: string) => {
@@ -172,24 +198,13 @@ export default function AdminPage() {
 
     if (error) { toast.error(error.message); return }
 
-    // ── Auto-enrol all active subscribers ────────────────────────────────
     if (challengeForm.auto_enrol_subscribers && newChallenge) {
-      const activeSubs = subscribers.filter(s =>
-        s.subscription_status === 'active' || s.subscription_status === 'trial'
-      )
+      const activeSubs = subscribers.filter(s => s.subscription_status === 'active' || s.subscription_status === 'trial')
       if (activeSubs.length > 0) {
-        const enrollments = activeSubs.map(s => ({
-          user_id: s.id,
-          challenge_id: newChallenge.id,
-        }))
-        const { error: enrollError } = await supabase
-          .from('challenge_participants')
-          .upsert(enrollments, { onConflict: 'user_id,challenge_id', ignoreDuplicates: true })
-
+        const enrollments = activeSubs.map(s => ({ user_id: s.id, challenge_id: newChallenge.id }))
+        const { error: enrollError } = await supabase.from('challenge_participants').upsert(enrollments, { onConflict: 'user_id,challenge_id', ignoreDuplicates: true })
         if (!enrollError) {
-          await supabase.from('challenges')
-            .update({ current_participants: activeSubs.length })
-            .eq('id', newChallenge.id)
+          await supabase.from('challenges').update({ current_participants: activeSubs.length }).eq('id', newChallenge.id)
           toast.success(`✅ Challenge created + ${activeSubs.length} subscribers auto-enrolled!`)
         } else {
           toast.success('Challenge created! (Auto-enrol had an issue — check participants manually)')
@@ -200,33 +215,18 @@ export default function AdminPage() {
     } else {
       toast.success('Challenge created!')
     }
-
-    setShowChallengeForm(false)
-    fetchAll()
+    setShowChallengeForm(false); fetchAll()
   }
 
-  // ── Manual enrol all subscribers into an existing challenge ────────────
   const enrolAllSubscribers = async (challengeId: string) => {
-    const activeSubs = subscribers.filter(s =>
-      s.subscription_status === 'active' || s.subscription_status === 'trial'
-    )
+    const activeSubs = subscribers.filter(s => s.subscription_status === 'active' || s.subscription_status === 'trial')
     if (activeSubs.length === 0) { toast.error('No active subscribers to enrol'); return }
-
-    const enrollments = activeSubs.map(s => ({
-      user_id: s.id,
-      challenge_id: challengeId,
-    }))
-    const { error } = await supabase
-      .from('challenge_participants')
-      .upsert(enrollments, { onConflict: 'user_id,challenge_id', ignoreDuplicates: true })
-
+    const enrollments = activeSubs.map(s => ({ user_id: s.id, challenge_id: challengeId }))
+    const { error } = await supabase.from('challenge_participants').upsert(enrollments, { onConflict: 'user_id,challenge_id', ignoreDuplicates: true })
     if (!error) {
-      const challenge = challenges.find(c => c.id === challengeId)
-      const currentCount = (challengeParticipants[challengeId] || []).length
-      const newCount = Math.max(currentCount, activeSubs.length)
+      const newCount = Math.max((challengeParticipants[challengeId] || []).length, activeSubs.length)
       await supabase.from('challenges').update({ current_participants: newCount }).eq('id', challengeId)
-      toast.success(`✅ ${activeSubs.length} subscribers enrolled!`)
-      fetchAll()
+      toast.success(`✅ ${activeSubs.length} subscribers enrolled!`); fetchAll()
     } else {
       toast.error('Enrol failed: ' + error.message)
     }
@@ -239,17 +239,13 @@ export default function AdminPage() {
   const saveEditChallenge = async () => {
     if (!editingChallenge) return
     const { error } = await supabase.from('challenges').update({
-      title: editingChallenge.title,
-      description: editingChallenge.custom_instructions,
-      start_date: editingChallenge.start_date,
-      start_time: editingChallenge.start_time,
-      end_date: editingChallenge.end_date,
-      end_time: editingChallenge.end_time,
+      title: editingChallenge.title, description: editingChallenge.custom_instructions,
+      start_date: editingChallenge.start_date, start_time: editingChallenge.start_time,
+      end_date: editingChallenge.end_date, end_time: editingChallenge.end_time,
       prize_pool: editingChallenge.prize_amount ? [{ place: 1, amount: parseFloat(editingChallenge.prize_amount), description: '1st place prize' }] : [],
       participant_limit: parseInt(editingChallenge.participant_limit),
       allowed_countries: editingChallenge.allowed_countries,
-      invite_only: editingChallenge.invite_only,
-      is_active: editingChallenge.is_active,
+      invite_only: editingChallenge.invite_only, is_active: editingChallenge.is_active,
     }).eq('id', editingChallenge.id)
     if (!error) { toast.success('Challenge updated!'); setEditingChallenge(null); fetchAll() }
     else toast.error(error.message)
@@ -275,22 +271,15 @@ export default function AdminPage() {
     const { error } = await supabase.from('challenge_participants').delete().eq('id', participantId)
     if (!error) {
       const challenge = challenges.find(c => c.id === challengeId)
-      if (challenge) {
-        await supabase.from('challenges').update({ current_participants: Math.max(0, (challenge.current_participants || 1) - 1) }).eq('id', challengeId)
-      }
-      toast.success('Participant removed')
-      setConfirmRemoveParticipant(null)
-      fetchAll()
-    } else {
-      toast.error('Failed to remove participant')
-    }
+      if (challenge) await supabase.from('challenges').update({ current_participants: Math.max(0, (challenge.current_participants || 1) - 1) }).eq('id', challengeId)
+      toast.success('Participant removed'); setConfirmRemoveParticipant(null); fetchAll()
+    } else toast.error('Failed to remove participant')
   }
 
   const copyLink = (slug: string) => {
     const url = `${window.location.origin}/join/${slug}`
     navigator.clipboard.writeText(url)
-    setCopiedSlug(slug)
-    toast.success('Link copied!')
+    setCopiedSlug(slug); toast.success('Link copied!')
     setTimeout(() => setCopiedSlug(null), 2000)
   }
 
@@ -395,31 +384,54 @@ export default function AdminPage() {
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(sub.subscription_status)}`}>{sub.subscription_status}</span>
                       <span className="text-xs text-gray-400">{(sub.total_steps||0).toLocaleString()} steps</span>
                       <span className="text-xs text-gray-400">Joined {new Date(sub.created_at).toLocaleDateString('en-NZ')}</span>
+                      {sub.stripe_subscription_id && <span className="text-xs text-cobalt-400">💳 Stripe active</span>}
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0">
                     {sub.subscription_status !== 'cancelled' && (
-                      <button onClick={() => setConfirmCancel(sub.id)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20"><XCircle className="w-3.5 h-3.5" /> Cancel</button>
+                      <button onClick={() => setConfirmCancel(sub.id)}
+                        className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20">
+                        <XCircle className="w-3.5 h-3.5" /> Cancel
+                      </button>
                     )}
-                    <button onClick={() => setConfirmDelete(sub.id)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+                    <button onClick={() => setConfirmDelete(sub.id)}
+                      className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20">
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
                   </div>
                 </div>
+
+                {/* ── CANCEL confirmation ── */}
                 {confirmCancel === sub.id && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
                     <p className="text-sm text-amber-500 font-medium">Cancel {sub.full_name || sub.email}'s subscription?</p>
-                    <p className="text-xs text-gray-400">They will lose access. Their data is kept.</p>
+                    <p className="text-xs text-gray-400">
+                      {sub.stripe_subscription_id
+                        ? '⚡ This will also cancel their Stripe subscription — no more charges.'
+                        : 'They will lose app access. Their data is kept.'}
+                    </p>
                     <div className="flex gap-2">
                       <button onClick={() => cancelSubscription(sub.id)} className="text-xs px-3 py-1.5 rounded-lg bg-amber-500 text-white">Yes, cancel</button>
                       <button onClick={() => setConfirmCancel(null)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">Keep active</button>
                     </div>
                   </motion.div>
                 )}
+
+                {/* ── DELETE confirmation ── */}
                 {confirmDelete === sub.id && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 space-y-2">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 space-y-2">
                     <p className="text-sm text-red-400 font-medium">Permanently delete {sub.full_name || sub.email}?</p>
-                    <p className="text-xs text-gray-400">Removes their profile, steps, and login. Cannot be undone.</p>
+                    <p className="text-xs text-gray-400">
+                      Removes their profile, steps, challenge history and login.{' '}
+                      {sub.stripe_subscription_id && <span className="text-red-400 font-medium">Stripe subscription will also be cancelled. </span>}
+                      Cannot be undone.
+                    </p>
                     <div className="flex gap-2">
-                      <button onClick={() => deleteAccount(sub.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white">Yes, delete</button>
+                      <button onClick={() => deleteAccount(sub.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white">
+                        Yes, delete {sub.stripe_subscription_id ? '+ cancel Stripe' : ''}
+                      </button>
                       <button onClick={() => setConfirmDelete(null)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">Cancel</button>
                     </div>
                   </motion.div>
@@ -505,23 +517,11 @@ export default function AdminPage() {
                     <input type="checkbox" checked={challengeForm.invite_only} onChange={e => setChallengeForm(p => ({ ...p, invite_only: e.target.checked }))} className="w-4 h-4 accent-cobalt-500" />
                     <span className="text-sm dark:text-gray-300">Invite only</span>
                   </label>
-
-                  {/* ── AUTO-ENROL CHECKBOX ── */}
                   <label className={`flex items-center gap-2 cursor-pointer px-3 py-2 rounded-xl border transition-all ${challengeForm.auto_enrol_subscribers ? 'border-green-500 bg-green-500/10' : 'border-gray-200 dark:border-lpr-border'}`}>
-                    <input
-                      type="checkbox"
-                      checked={challengeForm.auto_enrol_subscribers}
-                      onChange={e => setChallengeForm(p => ({ ...p, auto_enrol_subscribers: e.target.checked }))}
-                      className="w-4 h-4 accent-green-500"
-                    />
+                    <input type="checkbox" checked={challengeForm.auto_enrol_subscribers} onChange={e => setChallengeForm(p => ({ ...p, auto_enrol_subscribers: e.target.checked }))} className="w-4 h-4 accent-green-500" />
                     <div>
-                      <span className="text-sm dark:text-gray-300 font-medium flex items-center gap-1.5">
-                        <Users className="w-3.5 h-3.5" />
-                        Auto-enrol all subscribers
-                      </span>
-                      {challengeForm.auto_enrol_subscribers && (
-                        <p className="text-xs text-green-500 mt-0.5">{enrolCount} active subscriber{enrolCount !== 1 ? 's' : ''} will be added automatically</p>
-                      )}
+                      <span className="text-sm dark:text-gray-300 font-medium flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Auto-enrol all subscribers</span>
+                      {challengeForm.auto_enrol_subscribers && <p className="text-xs text-green-500 mt-0.5">{enrolCount} active subscriber{enrolCount !== 1 ? 's' : ''} will be added automatically</p>}
                     </div>
                   </label>
                 </div>
@@ -578,9 +578,7 @@ export default function AdminPage() {
                   <h3 className="font-bold dark:text-white">{ch.title}</h3>
                   <div className="flex items-center gap-2">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${ch.is_active ? 'bg-green-500/10 text-green-500' : 'bg-gray-500/10 text-gray-400'}`}>{ch.is_active ? 'Active' : 'Ended'}</span>
-                    <button onClick={() => startEditChallenge(ch)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-cobalt-500/10 text-cobalt-400 hover:bg-cobalt-500/20 transition-all">
-                      <Pencil className="w-3.5 h-3.5" /> Edit
-                    </button>
+                    <button onClick={() => startEditChallenge(ch)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-cobalt-500/10 text-cobalt-400 hover:bg-cobalt-500/20 transition-all"><Pencil className="w-3.5 h-3.5" /> Edit</button>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-gray-400">
@@ -589,16 +587,9 @@ export default function AdminPage() {
                   {ch.prize_pool?.length > 0 && <span>💰 ${ch.prize_pool[0].amount} NZD</span>}
                   {ch.allowed_countries?.length > 0 && <span>🌏 {ch.allowed_countries.join(', ')}</span>}
                 </div>
-
-                {/* ── Enrol all subscribers button on existing challenges ── */}
-                <button
-                  onClick={() => enrolAllSubscribers(ch.id)}
-                  className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all w-fit"
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  Enrol all {enrolCount} subscribers
+                <button onClick={() => enrolAllSubscribers(ch.id)} className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all w-fit">
+                  <Users className="w-3.5 h-3.5" /> Enrol all {enrolCount} subscribers
                 </button>
-
                 <div className="space-y-2">
                   <p className="text-xs text-gray-400 font-medium">Invite Link</p>
                   {editingSlug === ch.id ? (
@@ -619,9 +610,7 @@ export default function AdminPage() {
                   )}
                 </div>
                 <div className="space-y-2 mt-3">
-                  <p className="text-xs text-gray-400 font-medium">
-                    👥 Participants ({(challengeParticipants[ch.id] || []).length}/{ch.participant_limit})
-                  </p>
+                  <p className="text-xs text-gray-400 font-medium">👥 Participants ({(challengeParticipants[ch.id] || []).length}/{ch.participant_limit})</p>
                   {(challengeParticipants[ch.id] || []).length === 0 ? (
                     <p className="text-xs text-gray-500 italic">No one has joined yet.</p>
                   ) : (
