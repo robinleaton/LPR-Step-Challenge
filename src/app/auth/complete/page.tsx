@@ -1,88 +1,136 @@
 'use client'
-import { Suspense } from 'react'
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
-import { MaleAvatar } from '@/components/avatar/MaleAvatar'
-import { FemaleAvatar } from '@/components/avatar/FemaleAvatar'
-import toast from 'react-hot-toast'
+import { motion } from 'framer-motion'
+import { CheckCircle, XCircle } from 'lucide-react'
 
-function AuthCompleteContent() {
+export default function AuthCompletePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [status, setStatus] = useState('loading')
-  const [gender, setGender] = useState('male')
+  const sessionId = searchParams.get('session_id')
+
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
+  const [message, setMessage] = useState('Setting up your account...')
 
   useEffect(() => {
-    const complete = async () => {
-      const sessionId = searchParams.get('session_id')
-      if (!sessionId) { router.push('/auth/signup'); return }
-      const pendingRaw = sessionStorage.getItem('pendingSignup')
-      if (!pendingRaw) { router.push('/auth/signup'); return }
-      const pending = JSON.parse(pendingRaw)
-      setGender(pending.gender || 'male')
-      setStatus('creating')
-      const { data, error } = await supabase.auth.signUp({
-        email: pending.email,
-        password: pending.password,
-        options: { data: { full_name: pending.fullName, gender: pending.gender, date_of_birth: pending.dateOfBirth } }
-      })
-      if (error) { toast.error(error.message); setStatus('error'); return }
-      if (data.user) {
-        await supabase.from('profiles').update({
-          full_name: pending.fullName,
-          gender: pending.gender,
-          date_of_birth: pending.dateOfBirth,
-          notification_email: pending.notificationEmail,
-          notification_push: pending.notificationPush,
-          subscription_status: 'trial',
-          is_subscribed: true,
-        }).eq('id', data.user.id)
-      }
-      sessionStorage.removeItem('pendingSignup')
-      setStatus('done')
-      setTimeout(() => { router.push('/dashboard') }, 3000)
+    if (!sessionId) {
+      setStatus('error')
+      setMessage('No session found. Please try signing up again.')
+      return
     }
-    complete()
-  }, [router, searchParams])
+    completeSignup()
+  }, [sessionId])
+
+  const completeSignup = async () => {
+    try {
+      setMessage('Verifying your payment...')
+
+      // Call our API to complete the signup using the Stripe session
+      const res = await fetch('/api/stripe/complete-signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || data.error) {
+        setStatus('error')
+        setMessage(data.error || 'Something went wrong. Please contact support.')
+        return
+      }
+
+      setMessage('Logging you in...')
+
+      // Sign in the user with the credentials returned from our API
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
+      })
+
+      if (signInError) {
+        // User may already exist — try to get current session
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          setStatus('success')
+          setMessage('Welcome! Redirecting to your dashboard...')
+          setTimeout(() => router.push('/dashboard'), 2000)
+          return
+        }
+        setStatus('error')
+        setMessage('Account created but could not log in. Please go to the login page.')
+        return
+      }
+
+      setStatus('success')
+      setMessage('Welcome to LPR Step Challenge! 🎉')
+      setTimeout(() => router.push('/dashboard'), 2000)
+
+    } catch (err) {
+      setStatus('error')
+      setMessage('Something went wrong. Please contact support.')
+    }
+  }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 bg-white dark:bg-lpr-black">
-      <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center space-y-6 max-w-sm">
-        {status === 'loading' || status === 'creating' ? (
+    <div className="min-h-screen bg-white dark:bg-lpr-black flex items-center justify-center px-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="text-center max-w-sm space-y-6"
+      >
+        {status === 'loading' && (
           <>
-            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-16 h-16 rounded-full border-4 border-cobalt-500 border-t-transparent mx-auto" />
-            <p className="dark:text-white font-medium">Setting up your account...</p>
+            <div className="w-16 h-16 border-4 border-cobalt-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            <div>
+              <h2 className="text-xl font-black dark:text-white mb-2">Almost there...</h2>
+              <p className="text-sm text-gray-400">{message}</p>
+            </div>
           </>
-        ) : status === 'done' ? (
+        )}
+
+        {status === 'success' && (
           <>
-            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 200 }}>
-              {gender === 'female' ? <FemaleAvatar stage={1} size={160} animated /> : <MaleAvatar stage={1} size={160} animated />}
+            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
+              <CheckCircle className="w-16 h-16 text-green-500 mx-auto" />
             </motion.div>
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="space-y-2">
-              <h1 className="text-2xl font-bold dark:text-white">Welcome to the Challenge!</h1>
-              <p className="text-gray-500 dark:text-gray-400">Your 14-day free trial has started. Time to get moving!</p>
-            </motion.div>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="text-sm text-gray-400">
-              Taking you to your dashboard...
-            </motion.div>
+            <div>
+              <h2 className="text-xl font-black dark:text-white mb-2">You're in! 🎉</h2>
+              <p className="text-sm text-gray-400">{message}</p>
+            </div>
+            <div className="flex justify-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-cobalt-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+              <div className="w-2 h-2 rounded-full bg-cobalt-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+              <div className="w-2 h-2 rounded-full bg-cobalt-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+            </div>
           </>
-        ) : (
-          <div className="space-y-4">
-            <p className="text-red-400">Something went wrong. Please try again.</p>
-            <button onClick={() => router.push('/auth/signup')} className="btn-primary">Back to Signup</button>
-          </div>
+        )}
+
+        {status === 'error' && (
+          <>
+            <XCircle className="w-16 h-16 text-red-400 mx-auto" />
+            <div>
+              <h2 className="text-xl font-black dark:text-white mb-2">Something went wrong</h2>
+              <p className="text-sm text-gray-400">{message}</p>
+            </div>
+            <div className="space-y-3">
+              <button
+                onClick={() => router.push('/auth/login')}
+                className="btn-primary w-full"
+              >
+                Go to Login
+              </button>
+              <button
+                onClick={() => router.push('/auth/signup')}
+                className="btn-secondary w-full"
+              >
+                Try signing up again
+              </button>
+            </div>
+          </>
         )}
       </motion.div>
     </div>
-  )
-}
-
-export default function AuthCompletePage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-16 h-16 rounded-full border-4 border-cobalt-500 border-t-transparent animate-spin" /></div>}>
-      <AuthCompleteContent />
-    </Suspense>
   )
 }
