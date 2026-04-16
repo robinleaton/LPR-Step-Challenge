@@ -22,7 +22,7 @@ export default function CalendarPage() {
   const [stats, setStats] = useState({ done: 0, missed: 0, remaining: 0, total: 0 })
   const [completionPct, setCompletionPct] = useState(0)
 
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
 
   useEffect(() => {
     const init = async () => {
