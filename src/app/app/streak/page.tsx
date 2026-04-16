@@ -37,7 +37,7 @@ export default function StreakPage() {
       setUser(user)
 
       const today = new Date()
-      const todayStr = today.toISOString().split('T')[0]
+      const todayStr = today.toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
 
       const thirtyDaysAgo = new Date()
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
@@ -45,7 +45,7 @@ export default function StreakPage() {
         .from('step_logs')
         .select('date, steps')
         .eq('user_id', user.id)
-        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
+        .gte('date', thirtyDaysAgo.toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' }))
         .order('date', { ascending: false })
 
       const logMap: Record<string, number> = {}
@@ -58,7 +58,7 @@ export default function StreakPage() {
       const check = new Date(today)
       if (!logMap[todayStr]) check.setDate(check.getDate() - 1)
       while (true) {
-        const k = check.toISOString().split('T')[0]
+        const k = check.toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
         if (logMap[k] && logMap[k] > 0) { streak++; check.setDate(check.getDate() - 1) }
         else break
       }
@@ -67,7 +67,7 @@ export default function StreakPage() {
       let best = 0, cur = 0
       for (let i = 29; i >= 0; i--) {
         const d = new Date(); d.setDate(d.getDate() - i)
-        const k = d.toISOString().split('T')[0]
+        const k = d.toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
         if (logMap[k] && logMap[k] > 0) { cur++; if (cur > best) best = cur }
         else cur = 0
       }
@@ -80,7 +80,7 @@ export default function StreakPage() {
       for (let i = 0; i < 7; i++) {
         const d = new Date(today)
         d.setDate(d.getDate() - dayOfWeek + i)
-        const k = d.toISOString().split('T')[0]
+        const k = d.toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
         const steps = logMap[k] || 0
         let status: 'done' | 'miss' | 'today' | 'future'
         if (k === todayStr) status = 'today'
