@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { motion } from 'framer-motion'
-import { Camera, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-react'
+import { Camera, CheckCircle, ArrowLeft, RefreshCw, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function SubmitPage() {
@@ -19,7 +19,6 @@ export default function SubmitPage() {
   const [preview, setPreview] = useState<string | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [submitted, setSubmitted] = useState(false)
-  // Active challenge info — shown as context only, not a gate
   const [activeChallenge, setActiveChallenge] = useState<{ title: string; start: string; end: string } | null>(null)
 
   const now = new Date()
@@ -44,12 +43,11 @@ export default function SubmitPage() {
         .single()
       if (data) setTodayLog(data)
 
-      // Check for an active challenge — informational only, not a gate
+      // Check for active challenge — informational only
       const { data: participations } = await supabase
         .from('challenge_participants')
         .select('challenges(id, title, start_date, end_date)')
         .eq('user_id', user.id)
-
       const allChallenges = (participations || []).map((p: any) => p.challenges).filter(Boolean)
       const active = allChallenges.find((c: any) => today >= c.start_date && today <= c.end_date)
       if (active) {
@@ -108,7 +106,8 @@ export default function SubmitPage() {
     try {
       let photoUrl = null
       const ext = photoFile.name.split('.').pop()
-      const fileName = `${user.id}/${new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })}.${ext}`
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
+      const fileName = `${user.id}/${today}.${ext}`
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('step-photos')
         .upload(fileName, photoFile, { upsert: true })
@@ -117,7 +116,6 @@ export default function SubmitPage() {
         photoUrl = urlData.publicUrl
       }
 
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
       const { error } = await supabase.from('step_logs').upsert({
         user_id: user.id,
         steps,
@@ -147,28 +145,41 @@ export default function SubmitPage() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-lpr-black px-4 py-8">
-      <div className="max-w-lg mx-auto space-y-6">
+      <div className="max-w-lg mx-auto space-y-4">
 
         {/* Header */}
         <div className="flex items-center gap-3">
           <button onClick={() => router.push('/dashboard')} className="text-cobalt-500 hover:text-cobalt-400">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-xl font-bold dark:text-white">Submit Today's Steps</h1>
+          <h1 className="text-xl font-bold dark:text-white">Log Today's Steps</h1>
+        </div>
+
+        {/* ── ONE PER DAY notice — always visible ── */}
+        <div className="rounded-2xl p-4 flex items-start gap-3"
+          style={{ background: 'linear-gradient(135deg, #0b1430, #13131f)', border: '1px solid rgba(59,91,255,0.25)' }}>
+          <Info className="w-4 h-4 text-cobalt-400 flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-cobalt-400">One submission per day</p>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Upload a screenshot of your step count from Samsung Health, Apple Health, or any fitness app.
+              Your photo becomes your daily record — you can only log once per day, so make sure it shows today's full count.
+            </p>
+          </div>
         </div>
 
         {/* Cutoff warning */}
         <div className="card bg-amber-500/10 border-amber-500/30">
           <p className="text-sm text-amber-500">
-            ⏰ Steps must be submitted before <strong>11:59pm today</strong> or they won't count.
+            ⏰ Must be submitted before <strong>11:59pm tonight</strong> to count.
           </p>
         </div>
 
-        {/* Active challenge context banner — informational only */}
+        {/* Active challenge banner */}
         {activeChallenge && (
           <div className="card bg-cobalt-500/10 border-cobalt-500/30">
             <p className="text-sm text-cobalt-400">
-              🏆 <strong>{activeChallenge.title}</strong> is live — your steps today count toward the challenge leaderboard.
+              🏆 <strong>{activeChallenge.title}</strong> is live — today's steps count toward the leaderboard.
             </p>
           </div>
         )}
@@ -182,32 +193,55 @@ export default function SubmitPage() {
           </div>
         )}
 
-        {/* Already submitted today */}
+        {/* ── ALREADY SUBMITTED TODAY ── */}
         {!isPastCutoff && (todayLog || submitted) && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="card bg-green-500/10 border-green-500/30 text-center py-8 space-y-3"
+            className="rounded-2xl overflow-hidden"
+            style={{ border: '1px solid rgba(16,185,129,0.3)' }}
           >
-            <CheckCircle className="w-12 h-12 text-green-500 mx-auto" />
-            <h2 className="font-bold text-green-500 text-xl">Steps Submitted!</h2>
-            <p className="text-2xl font-bold dark:text-white">
-              {(todayLog?.steps || parseInt(confirmedSteps) || 0).toLocaleString()}
-            </p>
-            <p className="text-sm text-gray-400">Today's steps are logged. See you tomorrow!</p>
-            <button onClick={() => router.push('/dashboard')} className="btn-primary mx-auto">
-              View Leaderboard
-            </button>
+            {/* Green success header */}
+            <div className="px-5 py-5 text-center"
+              style={{ background: 'linear-gradient(135deg, #0a1a0a, #0d1a0d)' }}>
+              <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+              <h2 className="font-black text-green-400 text-xl mb-1">Today's steps logged! ✅</h2>
+              <div className="text-4xl font-black dark:text-white my-2">
+                {(todayLog?.steps || parseInt(confirmedSteps) || 0).toLocaleString()}
+              </div>
+              <p className="text-sm text-gray-400">steps recorded today</p>
+            </div>
+
+            {/* Info footer */}
+            <div className="px-5 py-4 space-y-3"
+              style={{ background: 'rgba(16,185,129,0.05)', borderTop: '1px solid rgba(16,185,129,0.15)' }}>
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <Info className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>You can only log steps once per day. Come back tomorrow to log again.</span>
+              </div>
+              {todayLog?.photo_url && (
+                <a href={todayLog.photo_url} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-cobalt-400 hover:text-cobalt-300">
+                  📷 View your submitted photo
+                </a>
+              )}
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="btn-primary w-full mt-1"
+              >
+                View Leaderboard →
+              </button>
+            </div>
           </motion.div>
         )}
 
-        {/* Upload form — always available when not past cutoff and not submitted */}
+        {/* ── UPLOAD FORM — only when not submitted and not past cutoff ── */}
         {!isPastCutoff && !todayLog && !submitted && (
           <div className="space-y-4">
             <div className="card space-y-4">
               <h2 className="font-bold dark:text-white">📸 Upload Your Step Photo</h2>
               <p className="text-sm text-gray-400">
-                Take a screenshot of Samsung Health, Apple Health, or any fitness app showing your step count for today.
+                Take a screenshot of your fitness app showing <strong className="text-white">today's</strong> total step count.
               </p>
               <input
                 ref={fileRef}
@@ -224,7 +258,7 @@ export default function SubmitPage() {
                 >
                   <Camera className="w-10 h-10 text-gray-400" />
                   <p className="font-medium dark:text-white">Tap to upload photo</p>
-                  <p className="text-xs text-gray-400">Take a photo or choose from gallery</p>
+                  <p className="text-xs text-gray-400 text-center">Choose from gallery or take a photo</p>
                 </button>
               ) : (
                 <div className="space-y-3">
@@ -241,7 +275,7 @@ export default function SubmitPage() {
                     onClick={() => { setPreview(null); setPhotoFile(null); setDetectedSteps(null); setConfirmedSteps('') }}
                     className="text-sm text-cobalt-400 hover:text-cobalt-300"
                   >
-                    Choose different photo
+                    Choose a different photo
                   </button>
                 </div>
               )}
@@ -272,6 +306,13 @@ export default function SubmitPage() {
                     </p>
                   )}
                 </div>
+
+                {/* Final one-per-day reminder before submit */}
+                <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-900 rounded-xl px-3 py-2.5">
+                  <Info className="w-3.5 h-3.5 flex-shrink-0 text-cobalt-400" />
+                  <span>This is your <strong className="text-gray-300">one submission for today</strong> — make sure the count is correct before confirming.</span>
+                </div>
+
                 <button
                   onClick={handleSubmit}
                   disabled={uploading || !confirmedSteps}
