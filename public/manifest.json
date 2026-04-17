@@ -1,12 +1,13 @@
 {
   "name": "LPR Step Challenge",
   "short_name": "LPR Steps",
-  "description": "Track your steps, level up your avatar, and win cash prizes with Leaton Performance.",
+  "description": "Track your steps, level up your avatar, and win cash prizes.",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#0a0a0f",
-  "theme_color": "#0047AB",
+  "theme_color": "#3b5bff",
   "orientation": "portrait",
+  "scope": "/",
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -22,17 +23,16 @@
     }
   ],
   "categories": ["health", "fitness", "sports"],
-  "screenshots": [],
   "shortcuts": [
     {
-      "name": "Leaderboard",
-      "url": "/dashboard?tab=leaderboard",
-      "description": "View live leaderboard"
+      "name": "Log Steps",
+      "url": "/submit",
+      "description": "Upload today's step count"
     },
     {
-      "name": "Sync Steps",
-      "url": "/sync",
-      "description": "Sync your steps"
+      "name": "Leaderboard",
+      "url": "/dashboard",
+      "description": "View live leaderboard"
     }
   ]
 }
