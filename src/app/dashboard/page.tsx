@@ -193,7 +193,7 @@ export default function DashboardPage() {
             <span className="text-3xl">📸</span>
             <div className="flex-1">
               <div className="text-base font-black text-white">Log Today's Steps</div>
-              <div className="text-xs text-white/70">Upload a photo · AI reads it for you</div>
+              <div className="text-xs text-white/70">Upload a photo of your step count</div>
             </div>
             <span className="text-white/50 text-xl">→</span>
           </motion.div>
