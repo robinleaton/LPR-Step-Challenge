@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
-import { Plus, Trash2, ArrowLeft, AlertTriangle, Mail, XCircle, Copy, Check, Pencil, Users } from 'lucide-react'
+import { Plus, Trash2, ArrowLeft, AlertTriangle, Mail, XCircle, Copy, Check, Pencil, Users, X, Image } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const COUNTRIES = ['New Zealand','Australia','United Kingdom','United States','Rarotonga','Niue','Samoa','Tonga','Fiji']
@@ -22,6 +22,9 @@ export default function AdminPage() {
   const [stats, setStats] = useState({ total: 0, active: 0, trial: 0, revenue: 0 })
   const [subscribers, setSubscribers] = useState<any[]>([])
   const [stepLogs, setStepLogs] = useState<any[]>([])
+  const [challengeLogs, setChallengeLogs] = useState<any[]>([])
+  const [activeChallenge, setActiveChallenge] = useState<any>(null)
+  const [todayLoggedIds, setTodayLoggedIds] = useState<Set<string>>(new Set())
   const [challenges, setChallenges] = useState<any[]>([])
   const [sponsors, setSponsors] = useState<any[]>([])
   const [feedback, setFeedback] = useState<any[]>([])
@@ -38,18 +41,11 @@ export default function AdminPage() {
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [editSlugValue, setEditSlugValue] = useState('')
   const [enrolCount, setEnrolCount] = useState(0)
+  const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; name: string; steps: number; date: string } | null>(null)
   const [challengeForm, setChallengeForm] = useState({
-    title: '',
-    start_date: '',
-    start_time: '06:00',
-    end_date: '',
-    end_time: '23:59',
-    prize_amount: '',
-    participant_limit: '30',
-    invite_only: true,
-    auto_enrol_subscribers: false,
-    allowed_countries: ['New Zealand'] as string[],
-    custom_instructions: DEFAULT_INSTRUCTIONS,
+    title: '', start_date: '', start_time: '06:00', end_date: '', end_time: '23:59',
+    prize_amount: '', participant_limit: '30', invite_only: true, auto_enrol_subscribers: false,
+    allowed_countries: ['New Zealand'] as string[], custom_instructions: DEFAULT_INSTRUCTIONS,
   })
   const [sponsorForm, setSponsorForm] = useState({ name: '', logo_url: '', link: '', tagline: '', is_active: true })
   const [showSponsorForm, setShowSponsorForm] = useState(false)
@@ -78,13 +74,67 @@ export default function AdminPage() {
         revenue: subs.filter(s => s.subscription_status === 'active').length * 15,
       })
     }
-    const today = new Date().toISOString().split('T')[0]
-    const { data: logs } = await supabase.from('step_logs').select('*, profiles(full_name, email, subscription_status)').eq('date', today).order('steps', { ascending: false })
-    if (logs) setStepLogs(logs)
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
+
+    // Today's logs for green/red indicators
+    const { data: todayLogs } = await supabase
+      .from('step_logs')
+      .select('*, profiles(full_name, email, subscription_status)')
+      .eq('date', today)
+      .order('steps', { ascending: false })
+    if (todayLogs) {
+      setStepLogs(todayLogs)
+      setTodayLoggedIds(new Set(todayLogs.map((l: any) => l.user_id)))
+    }
+
+    // Find active challenge and fetch all logs within it
     const { data: ch } = await supabase.from('challenges').select('*').order('created_at', { ascending: false })
     if (ch) {
       setChallenges(ch)
-      const { data: allParticipants } = await supabase.from('challenge_participants').select('*, profiles(id, full_name, email, country)')
+      const active = ch.find((c: any) => today >= c.start_date && today <= c.end_date && c.is_active)
+      setActiveChallenge(active || null)
+
+      if (active) {
+        // Get all step logs within the active challenge window
+        const { data: allLogs } = await supabase
+          .from('step_logs')
+          .select('user_id, steps, date, photo_url, source, profiles(full_name, email)')
+          .gte('date', active.start_date)
+          .lte('date', active.end_date)
+          .order('date', { ascending: false })
+
+        if (allLogs) {
+          // Aggregate total steps per user
+          const totals: Record<string, { name: string; email: string; steps: number; lastPhoto: string | null; lastDate: string; logs: any[] }> = {}
+          allLogs.forEach((log: any) => {
+            if (!totals[log.user_id]) {
+              totals[log.user_id] = {
+                name: log.profiles?.full_name || log.profiles?.email || 'Unknown',
+                email: log.profiles?.email || '',
+                steps: 0,
+                lastPhoto: null,
+                lastDate: '',
+                logs: [],
+              }
+            }
+            totals[log.user_id].steps += log.steps
+            totals[log.user_id].logs.push(log)
+            if (log.photo_url && (!totals[log.user_id].lastDate || log.date > totals[log.user_id].lastDate)) {
+              totals[log.user_id].lastPhoto = log.photo_url
+              totals[log.user_id].lastDate = log.date
+            }
+          })
+          const sorted = Object.entries(totals)
+            .map(([userId, data]) => ({ userId, ...data }))
+            .sort((a, b) => b.steps - a.steps)
+          setChallengeLogs(sorted)
+        }
+      }
+
+      const { data: allParticipants } = await supabase
+        .from('challenge_participants')
+        .select('*, profiles(id, full_name, email, country)')
       if (allParticipants) {
         const grouped: Record<string, any[]> = {}
         allParticipants.forEach(p => {
@@ -94,6 +144,7 @@ export default function AdminPage() {
         setChallengeParticipants(grouped)
       }
     }
+
     const { data: sp } = await supabase.from('sponsors').select('*').order('display_order')
     if (sp) setSponsors(sp)
     const { data: fb } = await supabase.from('challenge_feedback').select('*, profiles(full_name, email)').order('created_at', { ascending: false })
@@ -111,63 +162,44 @@ export default function AdminPage() {
     toast.success('CSV exported!')
   }
 
-  // Cancel subscription only — keeps account, stops Stripe
   const cancelSubscription = async (userId: string) => {
     const sub = subscribers.find(s => s.id === userId)
-
-    // Cancel in Stripe if they have a subscription ID
     if (sub?.stripe_subscription_id) {
       try {
         await fetch('/api/admin/cancel-stripe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subscriptionId: sub.stripe_subscription_id }),
         })
       } catch {}
     }
-
-    const { error } = await supabase.from('profiles')
-      .update({ subscription_status: 'cancelled', is_subscribed: false })
-      .eq('id', userId)
-
-    if (!error) {
-      toast.success('Subscription cancelled — Stripe payments stopped')
-      setConfirmCancel(null)
-      fetchAll()
-    } else {
-      toast.error('Failed to cancel')
-    }
+    const { error } = await supabase.from('profiles').update({ subscription_status: 'cancelled', is_subscribed: false }).eq('id', userId)
+    if (!error) { toast.success('Subscription cancelled — Stripe payments stopped'); setConfirmCancel(null); fetchAll() }
+    else toast.error('Failed to cancel')
   }
 
-  // Full delete — cancels Stripe + deletes account + all data
   const deleteAccount = async (userId: string) => {
     const response = await fetch('/api/admin/delete-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId, cancelStripe: true }),
     })
     const data = await response.json()
     if (data.success) {
       const stripeMsg = data.stripesCancelled ? ' · Stripe subscription cancelled' : ''
-      toast.success(`Account deleted${stripeMsg}`)
-      setConfirmDelete(null)
-      fetchAll()
-    } else {
-      toast.error(data.error || 'Failed to delete')
-    }
+      toast.success(`Account deleted${stripeMsg}`); setConfirmDelete(null); fetchAll()
+    } else toast.error(data.error || 'Failed to delete')
   }
 
   const overrideSteps = async (userId: string) => {
     const steps = parseInt(editStepValue)
     if (isNaN(steps)) { toast.error('Invalid steps'); return }
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
     const { error } = await supabase.from('step_logs').upsert({ user_id: userId, steps, date: today, source: 'admin_override' }, { onConflict: 'user_id,date' })
     if (!error) { toast.success('Steps updated!'); setEditingSteps(null); fetchAll() }
     else toast.error('Failed to update steps')
   }
 
   const deleteStepLog = async (userId: string) => {
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
     await supabase.from('step_logs').delete().eq('user_id', userId).eq('date', today)
     toast.success('Step log removed'); fetchAll()
   }
@@ -176,28 +208,17 @@ export default function AdminPage() {
     title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Math.random().toString(36).substr(2, 6)
 
   const createChallenge = async () => {
-    if (!challengeForm.title || !challengeForm.start_date || !challengeForm.end_date) {
-      toast.error('Please fill in title, start date and end date'); return
-    }
+    if (!challengeForm.title || !challengeForm.start_date || !challengeForm.end_date) { toast.error('Please fill in title, start date and end date'); return }
     const slug = generateSlug(challengeForm.title)
     const { data: newChallenge, error } = await supabase.from('challenges').insert({
-      title: challengeForm.title,
-      description: challengeForm.custom_instructions,
-      start_date: challengeForm.start_date,
-      start_time: challengeForm.start_time,
-      end_date: challengeForm.end_date,
-      end_time: challengeForm.end_time,
+      title: challengeForm.title, description: challengeForm.custom_instructions,
+      start_date: challengeForm.start_date, start_time: challengeForm.start_time,
+      end_date: challengeForm.end_date, end_time: challengeForm.end_time,
       prize_pool: challengeForm.prize_amount ? [{ place: 1, amount: parseFloat(challengeForm.prize_amount), description: '1st place prize' }] : [],
-      participant_limit: parseInt(challengeForm.participant_limit),
-      invite_only: challengeForm.invite_only,
-      allowed_countries: challengeForm.allowed_countries,
-      invite_slug: slug,
-      is_active: true,
-      current_participants: 0,
+      participant_limit: parseInt(challengeForm.participant_limit), invite_only: challengeForm.invite_only,
+      allowed_countries: challengeForm.allowed_countries, invite_slug: slug, is_active: true, current_participants: 0,
     }).select().single()
-
     if (error) { toast.error(error.message); return }
-
     if (challengeForm.auto_enrol_subscribers && newChallenge) {
       const activeSubs = subscribers.filter(s => s.subscription_status === 'active' || s.subscription_status === 'trial')
       if (activeSubs.length > 0) {
@@ -206,15 +227,9 @@ export default function AdminPage() {
         if (!enrollError) {
           await supabase.from('challenges').update({ current_participants: activeSubs.length }).eq('id', newChallenge.id)
           toast.success(`✅ Challenge created + ${activeSubs.length} subscribers auto-enrolled!`)
-        } else {
-          toast.success('Challenge created! (Auto-enrol had an issue — check participants manually)')
-        }
-      } else {
-        toast.success('Challenge created! No active subscribers to enrol.')
-      }
-    } else {
-      toast.success('Challenge created!')
-    }
+        } else toast.success('Challenge created! (Auto-enrol had an issue)')
+      } else toast.success('Challenge created! No active subscribers to enrol.')
+    } else toast.success('Challenge created!')
     setShowChallengeForm(false); fetchAll()
   }
 
@@ -227,14 +242,10 @@ export default function AdminPage() {
       const newCount = Math.max((challengeParticipants[challengeId] || []).length, activeSubs.length)
       await supabase.from('challenges').update({ current_participants: newCount }).eq('id', challengeId)
       toast.success(`✅ ${activeSubs.length} subscribers enrolled!`); fetchAll()
-    } else {
-      toast.error('Enrol failed: ' + error.message)
-    }
+    } else toast.error('Enrol failed: ' + error.message)
   }
 
-  const startEditChallenge = (ch: any) => {
-    setEditingChallenge({ ...ch, prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '', custom_instructions: ch.description || '' })
-  }
+  const startEditChallenge = (ch: any) => setEditingChallenge({ ...ch, prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '', custom_instructions: ch.description || '' })
 
   const saveEditChallenge = async () => {
     if (!editingChallenge) return
@@ -243,22 +254,18 @@ export default function AdminPage() {
       start_date: editingChallenge.start_date, start_time: editingChallenge.start_time,
       end_date: editingChallenge.end_date, end_time: editingChallenge.end_time,
       prize_pool: editingChallenge.prize_amount ? [{ place: 1, amount: parseFloat(editingChallenge.prize_amount), description: '1st place prize' }] : [],
-      participant_limit: parseInt(editingChallenge.participant_limit),
-      allowed_countries: editingChallenge.allowed_countries,
+      participant_limit: parseInt(editingChallenge.participant_limit), allowed_countries: editingChallenge.allowed_countries,
       invite_only: editingChallenge.invite_only, is_active: editingChallenge.is_active,
     }).eq('id', editingChallenge.id)
     if (!error) { toast.success('Challenge updated!'); setEditingChallenge(null); fetchAll() }
     else toast.error(error.message)
   }
 
-  const toggleEditCountry = (country: string) => {
-    setEditingChallenge((prev: any) => ({
-      ...prev,
-      allowed_countries: prev.allowed_countries.includes(country)
-        ? prev.allowed_countries.filter((c: string) => c !== country)
-        : [...prev.allowed_countries, country]
-    }))
-  }
+  const toggleEditCountry = (country: string) => setEditingChallenge((prev: any) => ({
+    ...prev, allowed_countries: prev.allowed_countries.includes(country)
+      ? prev.allowed_countries.filter((c: string) => c !== country)
+      : [...prev.allowed_countries, country]
+  }))
 
   const updateSlug = async (challengeId: string) => {
     const clean = editSlugValue.toLowerCase().replace(/[^a-z0-9-]/g, '-')
@@ -278,8 +285,7 @@ export default function AdminPage() {
 
   const copyLink = (slug: string) => {
     const url = `${window.location.origin}/join/${slug}`
-    navigator.clipboard.writeText(url)
-    setCopiedSlug(slug); toast.success('Link copied!')
+    navigator.clipboard.writeText(url); setCopiedSlug(slug); toast.success('Link copied!')
     setTimeout(() => setCopiedSlug(null), 2000)
   }
 
@@ -289,14 +295,10 @@ export default function AdminPage() {
     else toast.error(error.message)
   }
 
-  const toggleCountry = (country: string) => {
-    setChallengeForm(p => ({
-      ...p,
-      allowed_countries: p.allowed_countries.includes(country)
-        ? p.allowed_countries.filter(c => c !== country)
-        : [...p.allowed_countries, country]
-    }))
-  }
+  const toggleCountry = (country: string) => setChallengeForm(p => ({
+    ...p, allowed_countries: p.allowed_countries.includes(country)
+      ? p.allowed_countries.filter(c => c !== country) : [...p.allowed_countries, country]
+  }))
 
   const getStatusColor = (status: string) => {
     if (status === 'active') return 'text-green-500 bg-green-500/10'
@@ -310,11 +312,47 @@ export default function AdminPage() {
     return acc
   }, {})
 
+  const getRankEmoji = (i: number) => i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`
+
   if (loading) return <div className="min-h-screen flex items-center justify-center dark:bg-lpr-black"><div className="w-10 h-10 border-4 border-cobalt-500 border-t-transparent rounded-full animate-spin" /></div>
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-lpr-black">
-      <header className="sticky top-0 z-50 bg-white dark:bg-lpr-card border-b border-gray-200 dark:border-lpr-border px-4 py-3">
+
+      {/* Photo lightbox */}
+      <AnimatePresence>
+        {lightboxPhoto && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.9)' }}
+            onClick={() => setLightboxPhoto(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              className="relative max-w-lg w-full"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-bold text-white">{lightboxPhoto.name}</p>
+                  <p className="text-sm text-gray-400">{lightboxPhoto.steps.toLocaleString()} steps · {lightboxPhoto.date}</p>
+                </div>
+                <button onClick={() => setLightboxPhoto(null)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <img src={lightboxPhoto.url} alt="Step proof" className="w-full rounded-2xl object-contain max-h-[70vh]" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <header className="sticky top-0 z-40 bg-white dark:bg-lpr-card border-b border-gray-200 dark:border-lpr-border px-4 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button onClick={() => router.push('/dashboard')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl"><ArrowLeft className="w-4 h-4" /></button>
@@ -342,6 +380,7 @@ export default function AdminPage() {
           ))}
         </div>
 
+        {/* ── OVERVIEW ── */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -361,13 +400,14 @@ export default function AdminPage() {
               <h2 className="font-bold dark:text-white">Quick Actions</h2>
               <div className="flex flex-wrap gap-3">
                 <button onClick={exportEmails} className="btn-primary text-sm px-4 py-2 flex items-center gap-2"><Mail className="w-4 h-4" /> Export Email List</button>
-                <button onClick={() => setActiveTab('leaderboard')} className="btn-secondary text-sm px-4 py-2">🏆 Today's Leaderboard</button>
+                <button onClick={() => setActiveTab('leaderboard')} className="btn-secondary text-sm px-4 py-2">🏆 Leaderboard</button>
                 <button onClick={() => { setActiveTab('challenges'); setShowChallengeForm(true) }} className="btn-secondary text-sm px-4 py-2">⚡ Create Challenge</button>
               </div>
             </div>
           </div>
         )}
 
+        {/* ── SUBSCRIBERS ── */}
         {activeTab === 'subscribers' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -378,60 +418,49 @@ export default function AdminPage() {
               <div key={sub.id} className="card space-y-3">
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
-                    <p className="font-medium dark:text-white">{sub.full_name || '—'}</p>
-                    <p className="text-sm text-gray-500">{sub.email}</p>
-                    <div className="flex flex-wrap gap-2 mt-1">
+                    <div className="flex items-center gap-2">
+                      {/* Green/red dot — logged today or not */}
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${todayLoggedIds.has(sub.id) ? 'bg-green-500' : 'bg-red-400'}`} title={todayLoggedIds.has(sub.id) ? 'Logged today' : 'Not logged today'} />
+                      <p className="font-medium dark:text-white">{sub.full_name || '—'}</p>
+                    </div>
+                    <p className="text-sm text-gray-500 ml-4">{sub.email}</p>
+                    <div className="flex flex-wrap gap-2 mt-1 ml-4">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(sub.subscription_status)}`}>{sub.subscription_status}</span>
                       <span className="text-xs text-gray-400">{(sub.total_steps||0).toLocaleString()} steps</span>
                       <span className="text-xs text-gray-400">Joined {new Date(sub.created_at).toLocaleDateString('en-NZ')}</span>
                       {sub.stripe_subscription_id && <span className="text-xs text-cobalt-400">💳 Stripe active</span>}
+                      <span className={`text-xs font-semibold ${todayLoggedIds.has(sub.id) ? 'text-green-500' : 'text-red-400'}`}>
+                        {todayLoggedIds.has(sub.id) ? '✅ Logged today' : '❌ Not logged today'}
+                      </span>
                     </div>
                   </div>
                   <div className="flex gap-2 shrink-0">
                     {sub.subscription_status !== 'cancelled' && (
-                      <button onClick={() => setConfirmCancel(sub.id)}
-                        className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20">
+                      <button onClick={() => setConfirmCancel(sub.id)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20">
                         <XCircle className="w-3.5 h-3.5" /> Cancel
                       </button>
                     )}
-                    <button onClick={() => setConfirmDelete(sub.id)}
-                      className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20">
+                    <button onClick={() => setConfirmDelete(sub.id)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20">
                       <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
                   </div>
                 </div>
-
-                {/* ── CANCEL confirmation ── */}
                 {confirmCancel === sub.id && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-2">
                     <p className="text-sm text-amber-500 font-medium">Cancel {sub.full_name || sub.email}'s subscription?</p>
-                    <p className="text-xs text-gray-400">
-                      {sub.stripe_subscription_id
-                        ? '⚡ This will also cancel their Stripe subscription — no more charges.'
-                        : 'They will lose app access. Their data is kept.'}
-                    </p>
+                    <p className="text-xs text-gray-400">{sub.stripe_subscription_id ? '⚡ This will also cancel their Stripe subscription — no more charges.' : 'They will lose app access. Their data is kept.'}</p>
                     <div className="flex gap-2">
                       <button onClick={() => cancelSubscription(sub.id)} className="text-xs px-3 py-1.5 rounded-lg bg-amber-500 text-white">Yes, cancel</button>
                       <button onClick={() => setConfirmCancel(null)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">Keep active</button>
                     </div>
                   </motion.div>
                 )}
-
-                {/* ── DELETE confirmation ── */}
                 {confirmDelete === sub.id && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 space-y-2">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 space-y-2">
                     <p className="text-sm text-red-400 font-medium">Permanently delete {sub.full_name || sub.email}?</p>
-                    <p className="text-xs text-gray-400">
-                      Removes their profile, steps, challenge history and login.{' '}
-                      {sub.stripe_subscription_id && <span className="text-red-400 font-medium">Stripe subscription will also be cancelled. </span>}
-                      Cannot be undone.
-                    </p>
+                    <p className="text-xs text-gray-400">Removes their profile, steps, challenge history and login.{' '}{sub.stripe_subscription_id && <span className="text-red-400 font-medium">Stripe subscription will also be cancelled. </span>}Cannot be undone.</p>
                     <div className="flex gap-2">
-                      <button onClick={() => deleteAccount(sub.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white">
-                        Yes, delete {sub.stripe_subscription_id ? '+ cancel Stripe' : ''}
-                      </button>
+                      <button onClick={() => deleteAccount(sub.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white">Yes, delete {sub.stripe_subscription_id ? '+ cancel Stripe' : ''}</button>
                       <button onClick={() => setConfirmDelete(null)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">Cancel</button>
                     </div>
                   </motion.div>
@@ -441,54 +470,156 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── LEADERBOARD ── */}
         {activeTab === 'leaderboard' && (
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="font-bold dark:text-white">Today's Steps — {new Date().toLocaleDateString('en-NZ')}</h2>
+              <h2 className="font-bold dark:text-white">
+                {activeChallenge ? `${activeChallenge.title}` : 'Leaderboard'}
+              </h2>
               <button onClick={fetchAll} className="btn-secondary text-sm px-3 py-1.5">🔄 Refresh</button>
             </div>
-            {stepLogs.length === 0 ? (
-              <div className="card text-center py-8 text-gray-400">No steps logged today yet.</div>
-            ) : stepLogs.map((log, i) => (
-              <div key={log.id} className={`card flex items-center justify-between gap-4 ${log.steps > 50000 ? 'border-red-500/30 bg-red-500/5' : ''}`}>
-                <div className="flex items-center gap-4">
-                  <span className="text-2xl font-bold text-gray-300 w-8">#{i+1}</span>
-                  <div>
-                    <p className="font-medium dark:text-white flex items-center gap-2">
-                      {log.profiles?.full_name || log.profiles?.email || 'Unknown'}
-                      {log.steps > 50000 && <span className="flex items-center gap-1 text-xs text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full"><AlertTriangle className="w-3 h-3" /> Suspicious</span>}
-                    </p>
-                    <p className="text-xs text-gray-400">via {log.source?.replace(/_/g,' ')} · {log.profiles?.subscription_status}</p>
-                    {log.photo_url && <a href={log.photo_url} target="_blank" rel="noreferrer" className="text-xs text-cobalt-400 hover:underline">📷 View photo</a>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {editingSteps === log.user_id ? (
-                    <div className="flex items-center gap-2">
-                      <input type="number" value={editStepValue} onChange={e => setEditStepValue(e.target.value)} className="input w-28 text-sm" placeholder="Steps" />
-                      <button onClick={() => overrideSteps(log.user_id)} className="btn-primary text-xs px-3 py-1.5">Save</button>
-                      <button onClick={() => setEditingSteps(null)} className="btn-secondary text-xs px-3 py-1.5">Cancel</button>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-xl font-bold dark:text-white">{log.steps.toLocaleString()}</p>
-                      <button onClick={() => { setEditingSteps(log.user_id); setEditStepValue(log.steps.toString()) }} className="text-xs text-cobalt-400 px-2 py-1 rounded-lg hover:bg-cobalt-500/10">Edit</button>
-                      <button onClick={() => deleteStepLog(log.user_id)} className="text-xs text-red-400 px-2 py-1 rounded-lg hover:bg-red-500/10">Remove</button>
-                    </>
-                  )}
-                </div>
+
+            {/* Challenge standings */}
+            {activeChallenge && challengeLogs.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
+                  Challenge standings · {activeChallenge.start_date} → {activeChallenge.end_date}
+                </p>
+                {challengeLogs.map((entry, i) => {
+                  const loggedToday = todayLoggedIds.has(entry.userId)
+                  const todayLog = stepLogs.find(l => l.user_id === entry.userId)
+                  return (
+                    <motion.div key={entry.userId} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+                      className={`card space-y-3 ${entry.steps > 200000 ? 'border-red-500/30 bg-red-500/5' : ''}`}>
+                      <div className="flex items-center gap-3">
+                        {/* Rank */}
+                        <div className="text-2xl w-10 text-center flex-shrink-0">{getRankEmoji(i)}</div>
+
+                        {/* Name + logged indicator */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold dark:text-white">{entry.name}</p>
+                            {/* Green/red logged today dot */}
+                            <span className={`flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${loggedToday ? 'bg-green-500/15 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                              {loggedToday ? '🟢 Logged today' : '🔴 Not logged today'}
+                            </span>
+                            {entry.steps > 200000 && (
+                              <span className="flex items-center gap-1 text-xs text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full">
+                                <AlertTriangle className="w-3 h-3" /> Review needed
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">{entry.email}</p>
+                        </div>
+
+                        {/* Total steps */}
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-xl font-black dark:text-white">{entry.steps.toLocaleString()}</p>
+                          <p className="text-xs text-gray-400">total steps</p>
+                        </div>
+                      </div>
+
+                      {/* Today's steps + photo + edit */}
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
+                        <div className="text-xs text-gray-400">
+                          {loggedToday
+                            ? <span className="text-green-400">Today: <strong>{todayLog?.steps?.toLocaleString()}</strong> steps</span>
+                            : <span className="text-red-400">No steps logged yet today</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {/* View latest proof photo */}
+                          {entry.lastPhoto && (
+                            <button
+                              onClick={() => setLightboxPhoto({ url: entry.lastPhoto!, name: entry.name, steps: todayLog?.steps || entry.steps, date: entry.lastDate })}
+                              className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-cobalt-500/10 text-cobalt-400 hover:bg-cobalt-500/20 transition-all"
+                            >
+                              <Image className="w-3.5 h-3.5" /> View photo
+                            </button>
+                          )}
+                          {/* Edit today's steps */}
+                          {editingSteps === entry.userId ? (
+                            <div className="flex items-center gap-1.5">
+                              <input type="number" value={editStepValue} onChange={e => setEditStepValue(e.target.value)} className="input w-24 text-xs py-1" placeholder="Steps" />
+                              <button onClick={() => overrideSteps(entry.userId)} className="btn-primary text-xs px-2 py-1">Save</button>
+                              <button onClick={() => setEditingSteps(null)} className="btn-secondary text-xs px-2 py-1">Cancel</button>
+                            </div>
+                          ) : (
+                            <div className="flex gap-1.5">
+                              <button onClick={() => { setEditingSteps(entry.userId); setEditStepValue(todayLog?.steps?.toString() || '') }}
+                                className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">
+                                ✏️ Edit today
+                              </button>
+                              {loggedToday && (
+                                <button onClick={() => deleteStepLog(entry.userId)}
+                                  className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20">
+                                  🗑 Remove
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )
+                })}
               </div>
-            ))}
+            )}
+
+            {activeChallenge && challengeLogs.length === 0 && (
+              <div className="card text-center py-8 text-gray-400">
+                <p className="text-2xl mb-2">👟</p>
+                <p>No steps logged in this challenge yet.</p>
+              </div>
+            )}
+
+            {!activeChallenge && (
+              <div className="card text-center py-8 text-gray-400">
+                <p className="text-2xl mb-2">📅</p>
+                <p>No active challenge right now.</p>
+                <p className="text-xs mt-1">Standings will appear here when a challenge is running.</p>
+              </div>
+            )}
+
+            {/* Today's raw log — still shown below for reference */}
+            {stepLogs.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Today's submissions — {new Date().toLocaleDateString('en-NZ')}</p>
+                {stepLogs.map((log, i) => (
+                  <div key={log.id} className={`card flex items-center justify-between gap-4 py-3 ${log.steps > 50000 ? 'border-red-500/30 bg-red-500/5' : ''}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold text-gray-300 w-7">{i + 1}</span>
+                      <div>
+                        <p className="font-medium dark:text-white text-sm flex items-center gap-2">
+                          {log.profiles?.full_name || log.profiles?.email || 'Unknown'}
+                          {log.steps > 50000 && <span className="text-xs text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded-full flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Suspicious</span>}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-xs text-gray-400">via {log.source?.replace(/_/g, ' ')}</p>
+                          {log.photo_url && (
+                            <button onClick={() => setLightboxPhoto({ url: log.photo_url, name: log.profiles?.full_name || 'Unknown', steps: log.steps, date: new Date().toLocaleDateString('en-NZ') })}
+                              className="text-xs text-cobalt-400 hover:text-cobalt-300 flex items-center gap-1">
+                              <Image className="w-3 h-3" /> View photo
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="font-bold dark:text-white">{log.steps.toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
+        {/* ── CHALLENGES ── */}
         {activeTab === 'challenges' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="font-bold dark:text-white">Challenges</h2>
               <button onClick={() => setShowChallengeForm(!showChallengeForm)} className="btn-primary flex items-center gap-2 text-sm px-4 py-2"><Plus className="w-4 h-4" /> New Challenge</button>
             </div>
-
             {showChallengeForm && (
               <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="card space-y-5">
                 <h3 className="font-bold dark:text-white text-lg">Create New Challenge</h3>
@@ -521,18 +652,17 @@ export default function AdminPage() {
                     <input type="checkbox" checked={challengeForm.auto_enrol_subscribers} onChange={e => setChallengeForm(p => ({ ...p, auto_enrol_subscribers: e.target.checked }))} className="w-4 h-4 accent-green-500" />
                     <div>
                       <span className="text-sm dark:text-gray-300 font-medium flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Auto-enrol all subscribers</span>
-                      {challengeForm.auto_enrol_subscribers && <p className="text-xs text-green-500 mt-0.5">{enrolCount} active subscriber{enrolCount !== 1 ? 's' : ''} will be added automatically</p>}
+                      {challengeForm.auto_enrol_subscribers && <p className="text-xs text-green-500 mt-0.5">{enrolCount} subscriber{enrolCount !== 1 ? 's' : ''} will be added</p>}
                     </div>
                   </label>
                 </div>
-                <div><label className="label">📝 Challenge Instructions</label><p className="text-xs text-gray-400 mb-2">Shown to participants on the join page.</p><textarea className="input" rows={6} value={challengeForm.custom_instructions} onChange={e => setChallengeForm(p => ({ ...p, custom_instructions: e.target.value }))} /></div>
+                <div><label className="label">📝 Challenge Instructions</label><textarea className="input" rows={6} value={challengeForm.custom_instructions} onChange={e => setChallengeForm(p => ({ ...p, custom_instructions: e.target.value }))} /></div>
                 <div className="flex gap-2">
                   <button onClick={createChallenge} className="btn-primary">Create Challenge + Generate Link</button>
                   <button onClick={() => setShowChallengeForm(false)} className="btn-secondary">Cancel</button>
                 </div>
               </motion.div>
             )}
-
             {editingChallenge && (
               <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="card space-y-5 border-cobalt-500/50">
                 <div className="flex items-center justify-between">
@@ -569,16 +699,15 @@ export default function AdminPage() {
                 </div>
               </motion.div>
             )}
-
             {challenges.length === 0 ? (
-              <div className="card text-center py-8 text-gray-400">No challenges yet. Create your first one!</div>
+              <div className="card text-center py-8 text-gray-400">No challenges yet.</div>
             ) : challenges.map(ch => (
               <div key={ch.id} className="card space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold dark:text-white">{ch.title}</h3>
                   <div className="flex items-center gap-2">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${ch.is_active ? 'bg-green-500/10 text-green-500' : 'bg-gray-500/10 text-gray-400'}`}>{ch.is_active ? 'Active' : 'Ended'}</span>
-                    <button onClick={() => startEditChallenge(ch)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-cobalt-500/10 text-cobalt-400 hover:bg-cobalt-500/20 transition-all"><Pencil className="w-3.5 h-3.5" /> Edit</button>
+                    <button onClick={() => startEditChallenge(ch)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-cobalt-500/10 text-cobalt-400 hover:bg-cobalt-500/20"><Pencil className="w-3.5 h-3.5" /> Edit</button>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-gray-400">
@@ -587,7 +716,7 @@ export default function AdminPage() {
                   {ch.prize_pool?.length > 0 && <span>💰 ${ch.prize_pool[0].amount} NZD</span>}
                   {ch.allowed_countries?.length > 0 && <span>🌏 {ch.allowed_countries.join(', ')}</span>}
                 </div>
-                <button onClick={() => enrolAllSubscribers(ch.id)} className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all w-fit">
+                <button onClick={() => enrolAllSubscribers(ch.id)} className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 w-fit">
                   <Users className="w-3.5 h-3.5" /> Enrol all {enrolCount} subscribers
                 </button>
                 <div className="space-y-2">
@@ -617,9 +746,12 @@ export default function AdminPage() {
                     <div className="space-y-2">
                       {(challengeParticipants[ch.id] || []).map(p => (
                         <div key={p.id} className="flex items-center justify-between bg-gray-100 dark:bg-gray-800 rounded-xl px-3 py-2">
-                          <div>
-                            <p className="text-sm dark:text-white font-medium">{p.profiles?.full_name || '—'}</p>
-                            <p className="text-xs text-gray-400">{p.profiles?.email}{p.profiles?.country ? ` · ${p.profiles.country}` : ''}</p>
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full ${todayLoggedIds.has(p.user_id) ? 'bg-green-500' : 'bg-red-400'}`} />
+                            <div>
+                              <p className="text-sm dark:text-white font-medium">{p.profiles?.full_name || '—'}</p>
+                              <p className="text-xs text-gray-400">{p.profiles?.email}</p>
+                            </div>
                           </div>
                           {confirmRemoveParticipant === p.id ? (
                             <div className="flex items-center gap-2">
@@ -642,6 +774,7 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── SPONSORS ── */}
         {activeTab === 'sponsors' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -655,7 +788,7 @@ export default function AdminPage() {
                   <div><label className="label">Company Name</label><input className="input" placeholder="Z Energy" value={sponsorForm.name} onChange={e => setSponsorForm(p => ({ ...p, name: e.target.value }))} /></div>
                   <div><label className="label">Website URL</label><input className="input" placeholder="https://z.co.nz" value={sponsorForm.link} onChange={e => setSponsorForm(p => ({ ...p, link: e.target.value }))} /></div>
                   <div><label className="label">Logo URL</label><input className="input" placeholder="https://..." value={sponsorForm.logo_url} onChange={e => setSponsorForm(p => ({ ...p, logo_url: e.target.value }))} /></div>
-                  <div><label className="label">Tagline</label><input className="input" placeholder="$500 in vouchers up for grabs!" value={sponsorForm.tagline} onChange={e => setSponsorForm(p => ({ ...p, tagline: e.target.value }))} /></div>
+                  <div><label className="label">Tagline</label><input className="input" placeholder="$500 in vouchers!" value={sponsorForm.tagline} onChange={e => setSponsorForm(p => ({ ...p, tagline: e.target.value }))} /></div>
                 </div>
                 <div className="flex gap-2"><button onClick={saveSponsor} className="btn-primary">Save</button><button onClick={() => setShowSponsorForm(false)} className="btn-secondary">Cancel</button></div>
               </motion.div>
@@ -669,6 +802,7 @@ export default function AdminPage() {
           </div>
         )}
 
+        {/* ── FEEDBACK ── */}
         {activeTab === 'feedback' && (
           <div className="space-y-6">
             <h2 className="font-bold dark:text-white">Challenge Feedback ({feedback.length} responses)</h2>
@@ -689,7 +823,7 @@ export default function AdminPage() {
               </div>
             )}
             {feedback.length === 0 ? (
-              <div className="card text-center py-8 text-gray-400">No feedback yet — collected at the end of each challenge.</div>
+              <div className="card text-center py-8 text-gray-400">No feedback yet.</div>
             ) : feedback.map(f => (
               <div key={f.id} className="card space-y-2">
                 <div className="flex items-center justify-between">
