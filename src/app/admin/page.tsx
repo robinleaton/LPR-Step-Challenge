@@ -245,7 +245,7 @@ export default function AdminPage() {
     } else toast.error('Enrol failed: ' + error.message)
   }
 
-  const deleteChallenge = async (challengeId: string) => {     await supabase.from('challenge_participants').delete().eq('challenge_id', challengeId)     const { error } = await supabase.from('challenges').delete().eq('id', challengeId)     if (!error) { toast.success('Challenge deleted'); setConfirmDeleteChallenge(null); fetchAll() }     else toast.error('Failed to delete challenge')   }    const startEditChallenge = (ch: any) => setEditingChallenge({ ...ch, prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '', custom_instructions: ch.description || '' })
+  const deleteChallenge = async (challengeId: string) => {     await supabase.from('challenge_participants').delete().eq('challenge_id', challengeId)     const { error } = await supabase.from('challenges').delete().eq('id', challengeId)     if (!error) { toast.success('Challenge deleted'); setConfirmDeleteChallenge(null); fetchAll() }     else toast.error('Failed to delete challenge')   }    const deleteChallenge = async (challengeId: string) => {     await supabase.from('challenge_participants').delete().eq('challenge_id', challengeId)     const { error } = await supabase.from('challenges').delete().eq('id', challengeId)     if (!error) { toast.success('Challenge deleted'); setConfirmDeleteChallenge(null); fetchAll() }     else toast.error('Failed to delete challenge')   }    const startEditChallenge = (ch: any) => setEditingChallenge({ ...ch, prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '', custom_instructions: ch.description || '' })
 
   const saveEditChallenge = async () => {
     if (!editingChallenge) return
