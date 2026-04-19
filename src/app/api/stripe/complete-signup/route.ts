@@ -17,7 +17,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No session ID provided' }, { status: 400 })
     }
 
-    // Retrieve the Stripe checkout session with subscription expanded
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ['subscription', 'customer'],
     })
@@ -32,13 +31,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No email found in session' }, { status: 400 })
     }
 
-    // Pull everything from Stripe metadata
     const metadata = session.metadata || {}
     const fullName = metadata.fullName || ''
     const gender = metadata.gender || 'male'
     const dateOfBirth = metadata.dateOfBirth || null
     const motivationWhy = metadata.motivationWhy || null
     const userPassword = metadata.userPassword || ''
+    const challengeSlug = metadata.challengeSlug || ''
 
     const stripeCustomerId = typeof session.customer === 'string'
       ? session.customer
@@ -59,7 +58,6 @@ export async function POST(req: NextRequest) {
       userId = existingUser.id
       passwordToReturn = userPassword
     } else {
-      // Use the password they chose, or generate a fallback
       passwordToReturn = userPassword || (Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8))
 
       const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
@@ -76,7 +74,6 @@ export async function POST(req: NextRequest) {
       userId = newUser.user.id
     }
 
-    // Determine subscription status
     const sub = session.subscription as Stripe.Subscription
     const stripeStatus = sub?.status || 'trialing'
     const subscriptionStatus = stripeStatus === 'trialing' ? 'trial'
@@ -97,6 +94,35 @@ export async function POST(req: NextRequest) {
       is_subscribed: true,
       total_steps: 0,
     }, { onConflict: 'id' })
+
+    // ── Auto-enrol in challenge if slug was passed ────────────────────────
+    if (challengeSlug) {
+      const { data: challenge } = await supabase
+        .from('challenges')
+        .select('id, current_participants')
+        .eq('invite_slug', challengeSlug)
+        .single()
+
+      if (challenge) {
+        const { data: existing } = await supabase
+          .from('challenge_participants')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('challenge_id', challenge.id)
+          .single()
+
+        if (!existing) {
+          await supabase.from('challenge_participants').insert({
+            user_id: userId,
+            challenge_id: challenge.id,
+          })
+          await supabase
+            .from('challenges')
+            .update({ current_participants: (challenge.current_participants || 0) + 1 })
+            .eq('id', challenge.id)
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,
