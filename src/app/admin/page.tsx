@@ -40,7 +40,8 @@ export default function AdminPage() {
   const [confirmRemoveParticipant, setConfirmRemoveParticipant] = useState<string | null>(null)
   const [editingSlug, setEditingSlug] = useState<string | null>(null)
   const [editSlugValue, setEditSlugValue] = useState('')
-  const [enrolCount, setEnrolCount] = useState(0) const [confirmDeleteChallenge, setConfirmDeleteChallenge] = useState<string | null>(null)
+  const [enrolCount, setEnrolCount] = useState(0)
+  const [confirmDeleteChallenge, setConfirmDeleteChallenge] = useState<string | null>(null)
   const [lightboxPhoto, setLightboxPhoto] = useState<{ url: string; name: string; steps: number; date: string } | null>(null)
   const [challengeForm, setChallengeForm] = useState({
     title: '', start_date: '', start_time: '06:00', end_date: '', end_time: '23:59',
@@ -245,7 +246,14 @@ export default function AdminPage() {
     } else toast.error('Enrol failed: ' + error.message)
   }
 
-  const deleteChallenge = async (challengeId: string) => {     await supabase.from('challenge_participants').delete().eq('challenge_id', challengeId)     const { error } = await supabase.from('challenges').delete().eq('id', challengeId)     if (!error) { toast.success('Challenge deleted'); setConfirmDeleteChallenge(null); fetchAll() }     else toast.error('Failed to delete challenge')   }    const deleteChallenge = async (challengeId: string) => {     await supabase.from('challenge_participants').delete().eq('challenge_id', challengeId)     const { error } = await supabase.from('challenges').delete().eq('id', challengeId)     if (!error) { toast.success('Challenge deleted'); setConfirmDeleteChallenge(null); fetchAll() }     else toast.error('Failed to delete challenge')   }    const startEditChallenge = (ch: any) => setEditingChallenge({ ...ch, prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '', custom_instructions: ch.description || '' })
+  const deleteChallenge = async (challengeId: string) => {
+    await supabase.from('challenge_participants').delete().eq('challenge_id', challengeId)
+    const { error } = await supabase.from('challenges').delete().eq('id', challengeId)
+    if (!error) { toast.success('Challenge deleted'); setConfirmDeleteChallenge(null); fetchAll() }
+    else toast.error('Failed to delete challenge')
+  }
+
+  const startEditChallenge = (ch: any) => setEditingChallenge({ ...ch, prize_amount: ch.prize_pool?.[0]?.amount?.toString() || '', custom_instructions: ch.description || '' })
 
   const saveEditChallenge = async () => {
     if (!editingChallenge) return
@@ -707,7 +715,8 @@ export default function AdminPage() {
                   <h3 className="font-bold dark:text-white">{ch.title}</h3>
                   <div className="flex items-center gap-2">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${ch.is_active ? 'bg-green-500/10 text-green-500' : 'bg-gray-500/10 text-gray-400'}`}>{ch.is_active ? 'Active' : 'Ended'}</span>
-                    <button onClick={() => startEditChallenge(ch)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-cobalt-500/10 text-cobalt-400 hover:bg-cobalt-500/20"><Pencil className="w-3.5 h-3.5" /> Edit</button><button onClick={() => setConfirmDeleteChallenge(ch.id)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+                    <button onClick={() => startEditChallenge(ch)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-cobalt-500/10 text-cobalt-400 hover:bg-cobalt-500/20"><Pencil className="w-3.5 h-3.5" /> Edit</button>
+                    <button onClick={() => setConfirmDeleteChallenge(ch.id)} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm text-gray-400">
@@ -769,6 +778,19 @@ export default function AdminPage() {
                     </div>
                   )}
                 </div>
+
+                {/* ── DELETE CHALLENGE confirmation ── */}
+                {confirmDeleteChallenge === ch.id && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 space-y-2">
+                    <p className="text-sm text-red-400 font-medium">Delete "{ch.title}"?</p>
+                    <p className="text-xs text-gray-400">Removes the challenge and all participant records. Cannot be undone.</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => deleteChallenge(ch.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500 text-white">Yes, delete</button>
+                      <button onClick={() => setConfirmDeleteChallenge(null)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300">Cancel</button>
+                    </div>
+                  </motion.div>
+                )}
+
               </div>
             ))}
           </div>
