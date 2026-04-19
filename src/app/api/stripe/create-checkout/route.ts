@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
       motivationWhy,
       couponCode,
       password,
+      challengeSlug,
     } = await req.json()
 
     if (!email) {
@@ -24,9 +25,8 @@ export async function POST(req: NextRequest) {
       gender: gender || 'male',
       dateOfBirth: dateOfBirth || '',
       motivationWhy: motivationWhy || '',
-      // Store password so complete-signup can create the Supabase account
-      // This is safe — Stripe metadata is encrypted at rest and only accessible via your secret key
       userPassword: password || '',
+      challengeSlug: challengeSlug || '',
     }
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
@@ -47,7 +47,6 @@ export async function POST(req: NextRequest) {
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/auth/signup`,
     }
 
-    // If a coupon code was passed, apply it directly
     if (couponCode && couponCode.trim()) {
       try {
         const promoCodes = await stripe.promotionCodes.list({
