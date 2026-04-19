@@ -1,6 +1,6 @@
 'use client'
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, Tag } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -13,8 +13,11 @@ const WHY_EXAMPLES = [
   'To win the prize and treat my family 🏆',
 ]
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const challengeSlug = searchParams.get('challenge') || ''
+
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [whyFocused, setWhyFocused] = useState(false)
@@ -46,8 +49,6 @@ export default function SignupPage() {
     setLoading(true)
 
     try {
-      // Store password temporarily so /auth/complete can log them in after Stripe
-      // We pass it as part of metadata so our complete-signup route can create the account
       const res = await fetch('/api/stripe/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -58,8 +59,8 @@ export default function SignupPage() {
           dateOfBirth: form.dateOfBirth,
           motivationWhy: form.motivationWhy.trim(),
           couponCode: form.couponCode.trim(),
-          // Pass password so we can create the Supabase account after payment
           password: form.password,
+          challengeSlug, // pass through so /auth/complete can enrol them
         }),
       })
 
@@ -72,7 +73,6 @@ export default function SignupPage() {
       }
 
       if (data.url) {
-        // Redirect to Stripe checkout
         window.location.href = data.url
       }
     } catch (err) {
@@ -180,12 +180,8 @@ export default function SignupPage() {
           style={{ resize: 'none', lineHeight: '1.5' }}
         />
         {form.motivationWhy.length > 4 && (
-          <motion.p
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-xs mt-2"
-            style={{ color: '#7c9dff' }}
-          >
+          <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+            className="text-xs mt-2" style={{ color: '#7c9dff' }}>
             ✨ Your weekly reminders will be personalised around this
           </motion.p>
         )}
@@ -203,40 +199,26 @@ export default function SignupPage() {
 
       {/* Coupon code */}
       <div className="mx-4 mb-4">
-        <button
-          onClick={() => setShowCoupon(!showCoupon)}
-          className="flex items-center gap-2 text-xs text-cobalt-400 font-semibold"
-        >
+        <button onClick={() => setShowCoupon(!showCoupon)}
+          className="flex items-center gap-2 text-xs text-cobalt-400 font-semibold">
           <Tag className="w-3.5 h-3.5" />
           {showCoupon ? 'Hide coupon code' : 'Have a coupon code?'}
         </button>
         {showCoupon && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="mt-2"
-          >
-            <input
-              className="input"
-              placeholder="e.g. BUDS4WEEKS"
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-2">
+            <input className="input" placeholder="e.g. BUDS4WEEKS"
               value={form.couponCode}
               onChange={e => set('couponCode', e.target.value.toUpperCase())}
-              style={{ letterSpacing: '0.05em' }}
-            />
-            <p className="text-xs text-gray-500 mt-1.5">
-              Valid codes extend your free trial period. Card still required.
-            </p>
+              style={{ letterSpacing: '0.05em' }} />
+            <p className="text-xs text-gray-500 mt-1.5">Valid codes extend your free trial. Card still required.</p>
           </motion.div>
         )}
       </div>
 
       {/* CTA */}
       <div className="mx-4 space-y-3">
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="btn-primary w-full flex items-center justify-center gap-2"
-        >
+        <button onClick={handleSubmit} disabled={loading}
+          className="btn-primary w-full flex items-center justify-center gap-2">
           {loading
             ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Setting up...</>
             : 'Continue to Payment 🔒'}
@@ -250,5 +232,13 @@ export default function SignupPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center dark:bg-lpr-black"><div className="w-10 h-10 border-4 border-cobalt-500 border-t-transparent rounded-full animate-spin" /></div>}>
+      <SignupForm />
+    </Suspense>
   )
 }
