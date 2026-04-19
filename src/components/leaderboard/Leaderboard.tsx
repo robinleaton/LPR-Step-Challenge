@@ -6,6 +6,8 @@ import { MaleAvatar } from '@/components/avatar/MaleAvatar'
 import { FemaleAvatar } from '@/components/avatar/FemaleAvatar'
 import { formatSteps, getAvatarStage, AGE_BRACKETS, getAge } from '@/lib/constants'
 import { Trophy, Filter, Crown, Medal } from 'lucide-react'
+import ReactionSheet from '@/components/ReactionSheet'
+import ReactionSummary from '@/components/ReactionSummary'
 
 interface LeaderboardEntry {
   id: string
@@ -29,32 +31,33 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
   const [ageFilter, setAgeFilter] = useState<string>('all')
   const [showTop, setShowTop] = useState(10)
   const [challengeDates, setChallengeDates] = useState<{ start: string, end: string, title: string } | null>(null)
-  // 'challenge' = scoped to a specific challenge, 'subscriber' = all-time subscriber board
+  const [challengeId, setChallengeId] = useState<string | null>(null)
   const [mode, setMode] = useState<'challenge' | 'subscriber'>('challenge')
+
+  // Reaction sheet state
+  const [reactionTarget, setReactionTarget] = useState<{
+    userId: string
+    name: string
+    steps: number
+    stage?: string
+  } | null>(null)
 
   const fetchLeaderboard = async () => {
     if (!currentUserId) { setLoading(false); return }
 
     const today = new Date().toISOString().split('T')[0]
 
-    // ── Try to find an active or recent challenge ──────────────────────────
     const { data: participations } = await supabase
       .from('challenge_participants')
       .select('challenge_id, challenges(id, title, start_date, end_date)')
       .eq('user_id', currentUserId)
 
     let challenge: any = null
-
     if (participations && participations.length > 0) {
-      // Pick active challenge today first
       for (const p of participations) {
         const c = p.challenges as any
-        if (c && today >= c.start_date && today <= c.end_date) {
-          challenge = c
-          break
-        }
+        if (c && today >= c.start_date && today <= c.end_date) { challenge = c; break }
       }
-      // Fallback: most recently started
       if (!challenge) {
         const sorted = participations
           .map((p: any) => p.challenges)
@@ -64,21 +67,17 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
       }
     }
 
-    // ── Challenge mode ─────────────────────────────────────────────────────
     if (challenge) {
       setMode('challenge')
       setChallengeDates({ start: challenge.start_date, end: challenge.end_date, title: challenge.title })
+      setChallengeId(challenge.id)
 
       const { data: participants } = await supabase
         .from('challenge_participants')
         .select('user_id, profiles(id, full_name, gender, date_of_birth, is_subscribed, subscription_status)')
         .eq('challenge_id', challenge.id)
 
-      if (!participants || participants.length === 0) {
-        setEntries([])
-        setLoading(false)
-        return
-      }
+      if (!participants || participants.length === 0) { setEntries([]); setLoading(false); return }
 
       const userIds = participants.map((p: any) => p.user_id)
       const { data: stepLogs } = await supabase
@@ -90,9 +89,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
 
       const stepsByUser: Record<string, number> = {}
       userIds.forEach((id: string) => { stepsByUser[id] = 0 })
-      stepLogs?.forEach((log: any) => {
-        stepsByUser[log.user_id] = (stepsByUser[log.user_id] || 0) + log.steps
-      })
+      stepLogs?.forEach((log: any) => { stepsByUser[log.user_id] = (stepsByUser[log.user_id] || 0) + log.steps })
 
       let result: LeaderboardEntry[] = participants.map((p: any) => ({
         id: p.profiles?.id || p.user_id,
@@ -118,10 +115,10 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
       return
     }
 
-    // ── Subscriber fallback mode — no challenge found ──────────────────────
-    // Show all active subscribers ranked by total_steps (lifetime)
+    // Subscriber fallback
     setMode('subscriber')
     setChallengeDates(null)
+    setChallengeId(null)
 
     const { data: subscribers } = await supabase
       .from('profiles')
@@ -129,11 +126,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
       .in('subscription_status', ['active', 'trial'])
       .order('total_steps', { ascending: false })
 
-    if (!subscribers || subscribers.length === 0) {
-      setEntries([])
-      setLoading(false)
-      return
-    }
+    if (!subscribers || subscribers.length === 0) { setEntries([]); setLoading(false); return }
 
     let result: LeaderboardEntry[] = subscribers.map((s: any) => ({
       id: s.id,
@@ -184,6 +177,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
 
   return (
     <div className="space-y-4">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -211,6 +205,11 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
         </div>
       )}
 
+      {/* Tap hint */}
+      {mode === 'challenge' && challengeId && (
+        <p className="text-xs text-gray-500">💬 Tap any row to react or comment</p>
+      )}
+
       {/* Filters */}
       {showFilters && (
         <div className="flex flex-wrap gap-2">
@@ -222,19 +221,14 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
             {['all', 'male', 'female'].map(g => (
               <button key={g} onClick={() => setGenderFilter(g)}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                  genderFilter === g
-                    ? 'bg-cobalt-500 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                  genderFilter === g ? 'bg-cobalt-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
                 }`}>
                 {g === 'all' ? 'All' : g === 'male' ? 'Male' : 'Female'}
               </button>
             ))}
           </div>
-          <select
-            value={ageFilter}
-            onChange={e => setAgeFilter(e.target.value)}
-            className="px-3 py-1 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-none outline-none"
-          >
+          <select value={ageFilter} onChange={e => setAgeFilter(e.target.value)}
+            className="px-3 py-1 rounded-full text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-none outline-none">
             <option value="all">All Ages</option>
             {AGE_BRACKETS.map(b => <option key={b.label} value={b.label}>{b.label}</option>)}
           </select>
@@ -260,6 +254,8 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
               const isCurrentUser = entry.id === currentUserId
               const rank = index + 1
               const stage = getAvatarStage(entry.total_steps)
+              const isTappable = mode === 'challenge' && !!challengeId
+
               return (
                 <motion.div
                   key={entry.id}
@@ -267,14 +263,26 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${getRankBg(rank, isCurrentUser)}`}
+                  onClick={() => {
+                    if (isTappable) {
+                      setReactionTarget({
+                        userId: entry.id,
+                        name: entry.full_name || 'Anonymous',
+                        steps: entry.total_steps,
+                        stage: stage.name,
+                      })
+                    }
+                  }}
+                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${getRankBg(rank, isCurrentUser)} ${isTappable ? 'cursor-pointer active:scale-[0.98]' : ''}`}
                 >
                   <div className="flex items-center justify-center w-8">{getRankIcon(rank)}</div>
+
                   <div className="flex-shrink-0">
                     {entry.gender === 'female'
                       ? <FemaleAvatar stage={stage.stage} size={44} animated={false} />
                       : <MaleAvatar stage={stage.stage} size={44} animated={false} />}
                   </div>
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className={`font-semibold truncate text-sm ${isCurrentUser ? 'text-cobalt-400' : 'dark:text-white'}`}>
@@ -288,7 +296,13 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
                       )}
                     </div>
                     <p className="text-xs text-gray-400">{stage.name}</p>
+
+                    {/* Reaction emoji summary */}
+                    {isTappable && challengeId && (
+                      <ReactionSummary userId={entry.id} challengeId={challengeId} />
+                    )}
                   </div>
+
                   <div className="text-right flex-shrink-0">
                     <p className="font-bold text-sm dark:text-white">{formatSteps(entry.total_steps)}</p>
                     <p className="text-xs text-gray-400">steps</p>
@@ -297,16 +311,26 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
               )
             })}
           </AnimatePresence>
+
           {entries.length > showTop && (
-            <button
-              onClick={() => setShowTop(p => p + 10)}
-              className="w-full py-2 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors"
-            >
+            <button onClick={() => setShowTop(p => p + 10)}
+              className="w-full py-2 text-sm text-cobalt-500 hover:text-cobalt-400 transition-colors">
               Show more ({entries.length - showTop} remaining)
             </button>
           )}
         </div>
       )}
+
+      {/* Reaction sheet — mounts once, slides up when a row is tapped */}
+      {currentUserId && challengeId && (
+        <ReactionSheet
+          target={reactionTarget}
+          challengeId={challengeId}
+          currentUserId={currentUserId}
+          onClose={() => setReactionTarget(null)}
+        />
+      )}
+
     </div>
   )
 }
