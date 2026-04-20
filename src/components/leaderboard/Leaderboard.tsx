@@ -45,7 +45,7 @@ export function Leaderboard({ currentUserId, showFilters = true }: LeaderboardPr
   const fetchLeaderboard = async () => {
     if (!currentUserId) { setLoading(false); return }
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' })
 
     const { data: participations } = await supabase
       .from('challenge_participants')
