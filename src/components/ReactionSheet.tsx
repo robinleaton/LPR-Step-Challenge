@@ -8,13 +8,7 @@ import toast from 'react-hot-toast'
 const REACTIONS = ['🔥', '💪', '👑', '😱', '🫡', '😂']
 
 interface Props {
-  target: {
-    userId: string
-    name: string
-    steps: number
-    avatar?: string
-    stage?: string
-  } | null
+  target: { userId: string; name: string; steps: number; stage?: string } | null
   challengeId: string
   currentUserId: string
   onClose: () => void
@@ -36,36 +30,58 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
     const load = async () => {
       setLoading(true)
 
-      const [{ data: r }, { data: c }, { data: logs }] = await Promise.all([
-        supabase
-          .from('reactions')
-          .select('*, profiles:from_user_id(full_name)')
-          .eq('to_user_id', target.userId)
-          .eq('challenge_id', challengeId),
-        supabase
-          .from('comments')
-          .select('*, profiles:from_user_id(full_name)')
-          .eq('to_user_id', target.userId)
-          .eq('challenge_id', challengeId)
-          .order('created_at', { ascending: false })
-          .limit(20),
-        supabase
-          .from('step_logs')
-          .select('date, steps')
-          .eq('user_id', target.userId)
-          .gte('date', (() => {
-            const d = new Date(); d.setDate(d.getDate() - 6)
-            return d.toLocaleDateString('en-CA')
-          })())
-          .order('date', { ascending: true }),
-      ])
+      // Load reactions — no profiles join
+      const { data: r } = await supabase
+        .from('reactions')
+        .select('id, from_user_id, emoji, created_at')
+        .eq('to_user_id', target.userId)
+        .eq('challenge_id', challengeId)
+
+      // Load comments — no profiles join
+      const { data: c } = await supabase
+        .from('comments')
+        .select('id, from_user_id, text, created_at')
+        .eq('to_user_id', target.userId)
+        .eq('challenge_id', challengeId)
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      // Load step history
+      const sevenDaysAgo = new Date()
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
+      const { data: logs } = await supabase
+        .from('step_logs')
+        .select('date, steps')
+        .eq('user_id', target.userId)
+        .gte('date', sevenDaysAgo.toLocaleDateString('en-CA'))
+        .order('date', { ascending: true })
+
+      // Get names for reactions/comments from_user_ids
+      const allUserIds = [
+        ...new Set([
+          ...(r || []).map((x: any) => x.from_user_id),
+          ...(c || []).map((x: any) => x.from_user_id),
+        ])
+      ]
+
+      let nameMap: Record<string, string> = {}
+      if (allUserIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', allUserIds)
+        profiles?.forEach((p: any) => { nameMap[p.id] = p.full_name || 'Someone' })
+      }
 
       if (r) {
-        setReactions(r)
-        const mine = r.find((x: any) => x.from_user_id === currentUserId)
+        const enriched = r.map((x: any) => ({ ...x, from_name: nameMap[x.from_user_id] || 'Someone' }))
+        setReactions(enriched)
+        const mine = enriched.find((x: any) => x.from_user_id === currentUserId)
         setMyReaction(mine?.emoji || null)
       }
-      if (c) setComments(c)
+      if (c) {
+        setComments(c.map((x: any) => ({ ...x, from_name: nameMap[x.from_user_id] || 'Someone' })))
+      }
       if (logs) setStepHistory(logs)
       setLoading(false)
     }
@@ -95,12 +111,14 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
 
     const { data, error } = await supabase.from('reactions')
       .insert({ from_user_id: currentUserId, to_user_id: target.userId, challenge_id: challengeId, emoji })
-      .select('*, profiles:from_user_id(full_name)')
+      .select('id, from_user_id, emoji, created_at')
       .single()
 
     if (!error && data) {
       setMyReaction(emoji)
-      setReactions([...reactions.filter(r => r.from_user_id !== currentUserId), data])
+      setReactions([...reactions.filter(r => r.from_user_id !== currentUserId), { ...data, from_name: 'You' }])
+    } else {
+      toast.error('Could not send reaction')
     }
   }
 
@@ -110,11 +128,11 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
 
     const { data, error } = await supabase.from('comments')
       .insert({ from_user_id: currentUserId, to_user_id: target.userId, challenge_id: challengeId, text: commentText.trim() })
-      .select('*, profiles:from_user_id(full_name)')
+      .select('id, from_user_id, text, created_at')
       .single()
 
     if (!error && data) {
-      setComments([data, ...comments])
+      setComments([{ ...data, from_name: 'You' }, ...comments])
       setCommentText('')
       toast.success('Sent!')
     } else {
@@ -136,24 +154,16 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
   return (
     <AnimatePresence>
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex items-end justify-center"
         style={{ background: 'rgba(0,0,0,0.6)' }}
         onClick={onClose}
       >
         <motion.div
-          initial={{ y: '100%' }}
-          animate={{ y: 0 }}
-          exit={{ y: '100%' }}
+          initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
           className="w-full max-w-lg rounded-t-3xl flex flex-col"
-          style={{
-            background: 'linear-gradient(180deg, #0d0d1a 0%, #0a0a0f 100%)',
-            border: '1px solid rgba(59,91,255,0.15)',
-            height: '80vh',
-          }}
+          style={{ background: 'linear-gradient(180deg, #0d0d1a 0%, #0a0a0f 100%)', border: '1px solid rgba(59,91,255,0.15)', height: '80vh' }}
           onClick={e => e.stopPropagation()}
         >
           {/* Handle */}
@@ -165,10 +175,7 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
           <div className="px-5 pt-2 pb-4 flex items-center justify-between border-b border-white/5 flex-shrink-0">
             <div>
               <h3 className="text-lg font-black text-white">{target.name}</h3>
-              <p className="text-xs text-gray-400">
-                {target.steps.toLocaleString()} steps
-                {target.stage && ` · ${target.stage}`}
-              </p>
+              <p className="text-xs text-gray-400">{target.steps.toLocaleString()} steps{target.stage && ` · ${target.stage}`}</p>
             </div>
             <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:bg-white/10">
               <X className="w-4 h-4" />
@@ -207,9 +214,7 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
                   {REACTIONS.map(emoji => (
                     <button key={emoji} onClick={() => sendReaction(emoji)}
                       className={`text-2xl px-3 py-2 rounded-xl border transition-all ${
-                        myReaction === emoji
-                          ? 'border-cobalt-500 bg-cobalt-500/15 scale-110'
-                          : 'border-gray-800 bg-white/5 hover:border-gray-600'
+                        myReaction === emoji ? 'border-cobalt-500 bg-cobalt-500/15 scale-110' : 'border-gray-800 bg-white/5 hover:border-gray-600'
                       }`}>
                       {emoji}
                     </button>
@@ -222,7 +227,7 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
                     <div key={emoji} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
                       <span>{emoji}</span>
                       <span className="text-xs text-gray-400">
-                        {(list as any[]).map(r => r.profiles?.full_name?.split(' ')[0]).filter(Boolean).slice(0, 3).join(', ')}
+                        {(list as any[]).map(r => r.from_name?.split(' ')[0]).filter(Boolean).slice(0, 3).join(', ')}
                         {(list as any[]).length > 3 && ` +${(list as any[]).length - 3}`}
                       </span>
                     </div>
@@ -245,7 +250,7 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
                 {comments.map(c => (
                   <div key={c.id} className="rounded-xl bg-white/[0.03] border border-white/5 px-3 py-2">
                     <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                      <p className="text-xs font-bold text-cobalt-400">{c.profiles?.full_name || 'Someone'}</p>
+                      <p className="text-xs font-bold text-cobalt-400">{c.from_name}</p>
                       <p className="text-[10px] text-gray-600">
                         {new Date(c.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}
                       </p>
@@ -257,28 +262,22 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
             </div>
           </div>
 
-          {/* ── Comment input — pinned to bottom ── */}
+          {/* Comment input — pinned to bottom */}
           {!isSelf && (
-            <div className="px-5 py-4 border-t border-white/5 flex-shrink-0"
-              style={{ background: 'rgba(13,13,26,0.98)' }}>
+            <div className="px-5 py-4 border-t border-white/5 flex-shrink-0" style={{ background: 'rgba(13,13,26,0.98)' }}>
               <div className="flex gap-2 items-center">
                 <input
                   type="text"
                   maxLength={140}
                   value={commentText}
                   onChange={e => setCommentText(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment() }
-                  }}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment() } }}
                   placeholder={`Say something to ${target.name.split(' ')[0]}...`}
                   className="input flex-1 text-sm"
                   style={{ minHeight: '44px' }}
                 />
-                <button
-                  onClick={sendComment}
-                  disabled={sending || !commentText.trim()}
-                  className="btn-primary px-4 py-3 flex items-center gap-1 text-sm shrink-0 disabled:opacity-40"
-                >
+                <button onClick={sendComment} disabled={sending || !commentText.trim()}
+                  className="btn-primary px-4 py-3 flex items-center gap-1 text-sm shrink-0 disabled:opacity-40">
                   <Send className="w-4 h-4" />
                 </button>
               </div>
