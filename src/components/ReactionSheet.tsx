@@ -36,39 +36,37 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
     const load = async () => {
       setLoading(true)
 
-      // Load reactions
-      const { data: r } = await supabase
-        .from('reactions')
-        .select('*, profiles:from_user_id(full_name)')
-        .eq('to_user_id', target.userId)
-        .eq('challenge_id', challengeId)
+      const [{ data: r }, { data: c }, { data: logs }] = await Promise.all([
+        supabase
+          .from('reactions')
+          .select('*, profiles:from_user_id(full_name)')
+          .eq('to_user_id', target.userId)
+          .eq('challenge_id', challengeId),
+        supabase
+          .from('comments')
+          .select('*, profiles:from_user_id(full_name)')
+          .eq('to_user_id', target.userId)
+          .eq('challenge_id', challengeId)
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabase
+          .from('step_logs')
+          .select('date, steps')
+          .eq('user_id', target.userId)
+          .gte('date', (() => {
+            const d = new Date(); d.setDate(d.getDate() - 6)
+            return d.toLocaleDateString('en-CA')
+          })())
+          .order('date', { ascending: true }),
+      ])
+
       if (r) {
         setReactions(r)
         const mine = r.find((x: any) => x.from_user_id === currentUserId)
         setMyReaction(mine?.emoji || null)
       }
-
-      // Load comments
-      const { data: c } = await supabase
-        .from('comments')
-        .select('*, profiles:from_user_id(full_name)')
-        .eq('to_user_id', target.userId)
-        .eq('challenge_id', challengeId)
-        .order('created_at', { ascending: false })
-        .limit(20)
       if (c) setComments(c)
-
-      // Load last 7 days of steps
-      const sevenDaysAgo = new Date()
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
-      const { data: logs } = await supabase
-        .from('step_logs')
-        .select('date, steps')
-        .eq('user_id', target.userId)
-        .gte('date', sevenDaysAgo.toLocaleDateString('en-CA'))
-        .order('date', { ascending: true })
       if (logs) setStepHistory(logs)
-
       setLoading(false)
     }
     load()
@@ -78,10 +76,7 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
     if (!target || isSelf) return
 
     if (myReaction === emoji) {
-      // Remove it
-      await supabase
-        .from('reactions')
-        .delete()
+      await supabase.from('reactions').delete()
         .eq('from_user_id', currentUserId)
         .eq('to_user_id', target.userId)
         .eq('challenge_id', challengeId)
@@ -91,25 +86,15 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
       return
     }
 
-    // Remove old reaction first
     if (myReaction) {
-      await supabase
-        .from('reactions')
-        .delete()
+      await supabase.from('reactions').delete()
         .eq('from_user_id', currentUserId)
         .eq('to_user_id', target.userId)
         .eq('challenge_id', challengeId)
     }
 
-    // Insert new
-    const { data, error } = await supabase
-      .from('reactions')
-      .insert({
-        from_user_id: currentUserId,
-        to_user_id: target.userId,
-        challenge_id: challengeId,
-        emoji,
-      })
+    const { data, error } = await supabase.from('reactions')
+      .insert({ from_user_id: currentUserId, to_user_id: target.userId, challenge_id: challengeId, emoji })
       .select('*, profiles:from_user_id(full_name)')
       .single()
 
@@ -123,14 +108,8 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
     if (!target || !commentText.trim() || isSelf) return
     setSending(true)
 
-    const { data, error } = await supabase
-      .from('comments')
-      .insert({
-        from_user_id: currentUserId,
-        to_user_id: target.userId,
-        challenge_id: challengeId,
-        text: commentText.trim(),
-      })
+    const { data, error } = await supabase.from('comments')
+      .insert({ from_user_id: currentUserId, to_user_id: target.userId, challenge_id: challengeId, text: commentText.trim() })
       .select('*, profiles:from_user_id(full_name)')
       .single()
 
@@ -144,7 +123,6 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
     setSending(false)
   }
 
-  // Group reactions by emoji
   const grouped = reactions.reduce((acc: Record<string, any[]>, r) => {
     if (!acc[r.emoji]) acc[r.emoji] = []
     acc[r.emoji].push(r)
@@ -170,21 +148,21 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-          className="w-full max-w-lg rounded-t-3xl overflow-hidden flex flex-col"
+          className="w-full max-w-lg rounded-t-3xl flex flex-col"
           style={{
             background: 'linear-gradient(180deg, #0d0d1a 0%, #0a0a0f 100%)',
             border: '1px solid rgba(59,91,255,0.15)',
-            maxHeight: '85vh',
+            height: '80vh',
           }}
           onClick={e => e.stopPropagation()}
         >
           {/* Handle */}
-          <div className="flex justify-center pt-3 pb-1">
+          <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
             <div className="w-10 h-1 rounded-full bg-gray-600" />
           </div>
 
           {/* Header */}
-          <div className="px-5 pt-3 pb-4 flex items-center justify-between border-b border-white/5">
+          <div className="px-5 pt-2 pb-4 flex items-center justify-between border-b border-white/5 flex-shrink-0">
             <div>
               <h3 className="text-lg font-black text-white">{target.name}</h3>
               <p className="text-xs text-gray-400">
@@ -197,25 +175,20 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 min-h-0">
 
             {/* Step chart */}
             {stepHistory.length > 0 && (
               <div>
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Last 7 days</p>
-                <div className="flex items-end gap-1.5 h-16">
+                <div className="flex items-end gap-1.5 h-14">
                   {stepHistory.map((day, i) => {
                     const h = (day.steps / maxSteps) * 100
                     const label = new Date(day.date + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'short' })[0]
                     return (
                       <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                        <div
-                          className="w-full rounded-t-md transition-all"
-                          style={{
-                            height: `${Math.max(h, 4)}%`,
-                            background: 'linear-gradient(180deg, #3b5bff, #7c3aed)',
-                          }}
-                        />
+                        <div className="w-full rounded-t-md" style={{ height: `${Math.max(h, 4)}%`, background: 'linear-gradient(180deg, #3b5bff, #7c3aed)' }} />
                         <span className="text-[9px] text-gray-600 font-bold">{label}</span>
                       </div>
                     )
@@ -229,25 +202,20 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
                 {isSelf ? 'Reactions you got' : 'React'}
               </p>
-
               {!isSelf && (
                 <div className="flex gap-2 mb-3 flex-wrap">
                   {REACTIONS.map(emoji => (
-                    <button
-                      key={emoji}
-                      onClick={() => sendReaction(emoji)}
+                    <button key={emoji} onClick={() => sendReaction(emoji)}
                       className={`text-2xl px-3 py-2 rounded-xl border transition-all ${
                         myReaction === emoji
                           ? 'border-cobalt-500 bg-cobalt-500/15 scale-110'
                           : 'border-gray-800 bg-white/5 hover:border-gray-600'
-                      }`}
-                    >
+                      }`}>
                       {emoji}
                     </button>
                   ))}
                 </div>
               )}
-
               {Object.keys(grouped).length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(grouped).map(([emoji, list]) => (
@@ -265,25 +233,19 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
               )}
             </div>
 
-            {/* Comments */}
+            {/* Comments list */}
             <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                Comments
-              </p>
-
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Comments</p>
               {comments.length === 0 && (
-                <p className="text-xs text-gray-600 italic mb-3">
+                <p className="text-xs text-gray-600 italic mb-2">
                   {isSelf ? 'No comments yet' : 'No comments yet — say something 👇'}
                 </p>
               )}
-
-              <div className="space-y-2 mb-3 max-h-60 overflow-y-auto">
+              <div className="space-y-2">
                 {comments.map(c => (
                   <div key={c.id} className="rounded-xl bg-white/[0.03] border border-white/5 px-3 py-2">
                     <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                      <p className="text-xs font-bold text-cobalt-400">
-                        {c.profiles?.full_name || 'Someone'}
-                      </p>
+                      <p className="text-xs font-bold text-cobalt-400">{c.profiles?.full_name || 'Someone'}</p>
                       <p className="text-[10px] text-gray-600">
                         {new Date(c.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}
                       </p>
@@ -292,35 +254,39 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
 
-              {!isSelf && (
-                <div className="flex gap-2 items-end">
-                  <input
-                    type="text"
-                    maxLength={140}
-                    value={commentText}
-                    onChange={e => setCommentText(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment() }
-                    }}
-                    placeholder="Say something..."
-                    className="input flex-1 text-sm"
-                  />
-                  <button
-                    onClick={sendComment}
-                    disabled={sending || !commentText.trim()}
-                    className="btn-primary px-4 py-2 flex items-center gap-1 text-sm shrink-0"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
+          {/* ── Comment input — pinned to bottom ── */}
+          {!isSelf && (
+            <div className="px-5 py-4 border-t border-white/5 flex-shrink-0"
+              style={{ background: 'rgba(13,13,26,0.98)' }}>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  maxLength={140}
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment() }
+                  }}
+                  placeholder={`Say something to ${target.name.split(' ')[0]}...`}
+                  className="input flex-1 text-sm"
+                  style={{ minHeight: '44px' }}
+                />
+                <button
+                  onClick={sendComment}
+                  disabled={sending || !commentText.trim()}
+                  className="btn-primary px-4 py-3 flex items-center gap-1 text-sm shrink-0 disabled:opacity-40"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
               {commentText.length > 100 && (
                 <p className="text-[10px] text-gray-600 text-right mt-1">{140 - commentText.length} left</p>
               )}
             </div>
-
-          </div>
+          )}
         </motion.div>
       </motion.div>
     </AnimatePresence>
