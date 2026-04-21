@@ -162,7 +162,7 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
         <motion.div
           initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-          className="w-full max-w-lg rounded-t-3xl flex flex-col"
+          onKeyDown={e => e.stopPropagation()} className="w-full max-w-lg rounded-t-3xl flex flex-col"
           style={{ background: 'linear-gradient(180deg, #0d0d1a 0%, #0a0a0f 100%)', border: '1px solid rgba(59,91,255,0.15)', height: '80vh' }}
           onClick={e => e.stopPropagation()}
         >
@@ -271,7 +271,7 @@ export default function ReactionSheet({ target, challengeId, currentUserId, onCl
                   maxLength={140}
                   value={commentText}
                   onChange={e => setCommentText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment() } }}
+                  onClick={e => e.stopPropagation()} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendComment() } }}
                   placeholder={`Say something to ${target.name.split(' ')[0]}...`}
                   className="input flex-1 text-sm"
                   style={{ minHeight: '44px' }}
