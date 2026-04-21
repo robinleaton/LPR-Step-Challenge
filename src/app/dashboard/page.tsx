@@ -7,7 +7,8 @@ import { Leaderboard } from '@/components/leaderboard/Leaderboard'
 import { MaleAvatar } from '@/components/avatar/MaleAvatar'
 import { FemaleAvatar } from '@/components/avatar/FemaleAvatar'
 import { getAvatarStage, formatSteps } from '@/lib/constants'
-import { Home, Trophy, Camera, Flame, Calendar, Settings } from 'lucide-react'
+import { Home, Trophy, Camera, Flame, Calendar, Settings, LogOut } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 type Tab = 'home' | 'leaderboard'
 
@@ -29,47 +30,22 @@ export default function DashboardPage() {
       if (!user) { router.push('/auth/login'); return }
       setUser(user)
 
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
-      if (prof) {
-        setProfile(prof)
-        setIsAdmin(prof.is_admin === true)
-      }
+      const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+      if (prof) { setProfile(prof); setIsAdmin(prof.is_admin === true) }
 
       const today = new Date().toISOString().split('T')[0]
 
-      // Today's steps
-      const { data: log } = await supabase
-        .from('step_logs')
-        .select('steps')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .single()
+      const { data: log } = await supabase.from('step_logs').select('steps').eq('user_id', user.id).eq('date', today).single()
       if (log) setTodaySteps(log.steps)
 
-      // Active challenge
-      const { data: participations } = await supabase
-        .from('challenge_participants')
-        .select('challenges(id, title, start_date, end_date)')
-        .eq('user_id', user.id)
+      const { data: participations } = await supabase.from('challenge_participants').select('challenges(id, title, start_date, end_date)').eq('user_id', user.id)
       const allChallenges = (participations || []).map((p: any) => p.challenges).filter(Boolean)
-      const active = allChallenges.find((c: any) => today >= c.start_date && today <= c.end_date)
-        || [...allChallenges].sort((a: any, b: any) => b.start_date.localeCompare(a.start_date))[0]
+      const active = allChallenges.find((c: any) => today >= c.start_date && today <= c.end_date) || [...allChallenges].sort((a: any, b: any) => b.start_date.localeCompare(a.start_date))[0]
       if (active) setChallenge(active)
 
-      // Current streak
       const thirtyDaysAgo = new Date()
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-      const { data: logs } = await supabase
-        .from('step_logs')
-        .select('date, steps')
-        .eq('user_id', user.id)
-        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
-        .order('date', { ascending: false })
-
+      const { data: logs } = await supabase.from('step_logs').select('date, steps').eq('user_id', user.id).gte('date', thirtyDaysAgo.toISOString().split('T')[0]).order('date', { ascending: false })
       const logMap: Record<string, number> = {}
       logs?.forEach((l: any) => { logMap[l.date] = l.steps })
       let streak = 0
@@ -77,18 +53,21 @@ export default function DashboardPage() {
       if (!logMap[today]) check.setDate(check.getDate() - 1)
       while (true) {
         const k = check.toISOString().split('T')[0]
-        if (logMap[k] && logMap[k] > 0) { streak++; check.setDate(check.getDate() - 1) }
-        else break
+        if (logMap[k] && logMap[k] > 0) { streak++; check.setDate(check.getDate() - 1) } else break
       }
       setCurrentStreak(streak)
-
       setLoading(false)
     }
     init()
   }, [router])
 
-  const stage = profile ? getAvatarStage(profile.total_steps || 0) : { stage: 1, name: 'Couch Potato' }
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    toast.success('Signed out')
+    router.push('/auth/login')
+  }
 
+  const stage = profile ? getAvatarStage(profile.total_steps || 0) : { stage: 1, name: 'Couch Potato' }
   const getGreeting = () => {
     const h = new Date().getHours()
     if (h < 12) return 'Good morning'
@@ -104,7 +83,6 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-lpr-black pb-20">
-
       {activeTab === 'home' && (
         <div>
           {/* Header */}
@@ -116,31 +94,39 @@ export default function DashboardPage() {
                 {profile?.full_name?.split(' ')[0] || 'there'}
               </h1>
             </div>
-            {/* Admin button — only visible to admin users */}
-            {isAdmin && (
+
+            {/* Right side buttons */}
+            <div className="flex items-center gap-2 mt-1">
+              {/* Sign out button — always visible */}
               <button
-                onClick={() => router.push('/admin')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all mt-1"
-                style={{
-                  background: 'rgba(59,91,255,0.15)',
-                  border: '1px solid rgba(59,91,255,0.35)',
-                  color: '#7c9dff',
-                }}
+                onClick={handleSignOut}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#9ca3af' }}
+                title="Sign out"
               >
-                <Settings className="w-3.5 h-3.5" />
-                Admin
+                <LogOut className="w-3.5 h-3.5" />
+                Sign out
               </button>
-            )}
+
+              {/* Admin button — only visible to admins */}
+              {isAdmin && (
+                <button
+                  onClick={() => router.push('/admin')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+                  style={{ background: 'rgba(59,91,255,0.15)', border: '1px solid rgba(59,91,255,0.35)', color: '#7c9dff' }}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  Admin
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Challenge card */}
           {challenge && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
               className="mx-4 mb-3 rounded-2xl p-4 relative overflow-hidden"
-              style={{ background: 'linear-gradient(135deg, #0e1840, #0a0a1a)', border: '1px solid rgba(59,91,255,0.25)' }}
-            >
+              style={{ background: 'linear-gradient(135deg, #0e1840, #0a0a1a)', border: '1px solid rgba(59,91,255,0.25)' }}>
               <p className="text-xs font-bold text-cobalt-400 uppercase tracking-wider mb-1">Active Challenge</p>
               <p className="text-lg font-black dark:text-white mb-2">{challenge.title}</p>
               <div className="flex gap-2 flex-wrap">
@@ -165,13 +151,7 @@ export default function DashboardPage() {
               { val: `${currentStreak}`, lbl: 'Day streak 🔥', color: 'text-amber-400' },
               { val: stage.name, lbl: 'Avatar stage', color: 'text-purple-400' },
             ].map((s, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="card"
-              >
+              <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="card">
                 <div className={`text-xl font-black ${s.color}`}>{s.val}</div>
                 <div className="text-xs text-gray-500 mt-1 font-semibold">{s.lbl}</div>
               </motion.div>
@@ -179,17 +159,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Submit CTA */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
             onClick={() => router.push('/submit')}
             className="mx-4 mb-3 rounded-2xl p-4 flex items-center gap-3 cursor-pointer active:scale-98 transition-transform"
-            style={{
-              background: 'linear-gradient(135deg, #3b5bff, #7c3aed)',
-              boxShadow: '0 8px 30px rgba(59,91,255,0.3)',
-            }}
-          >
+            style={{ background: 'linear-gradient(135deg, #3b5bff, #7c3aed)', boxShadow: '0 8px 30px rgba(59,91,255,0.3)' }}>
             <span className="text-3xl">📸</span>
             <div className="flex-1">
               <div className="text-base font-black text-white">Log Today's Steps</div>
@@ -199,18 +172,13 @@ export default function DashboardPage() {
           </motion.div>
 
           {/* Streak mini */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
             onClick={() => router.push('/app/streak')}
             className="mx-4 mb-3 rounded-2xl p-4 flex items-center gap-3 cursor-pointer"
-            style={{ background: 'linear-gradient(135deg, #1a0d2e, #13131f)', border: '1px solid rgba(124,58,237,0.25)' }}
-          >
+            style={{ background: 'linear-gradient(135deg, #1a0d2e, #13131f)', border: '1px solid rgba(124,58,237,0.25)' }}>
             <span className="text-4xl" style={{ animation: 'flicker 1.5s ease-in-out infinite' }}>🔥</span>
             <div>
-              <div className="text-3xl font-black"
-                style={{ background: 'linear-gradient(135deg, #7c9dff, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1 }}>
+              <div className="text-3xl font-black" style={{ background: 'linear-gradient(135deg, #7c9dff, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', lineHeight: 1 }}>
                 {currentStreak}
               </div>
               <div className="text-xs text-gray-400">day streak — tap to view progress</div>
@@ -220,37 +188,23 @@ export default function DashboardPage() {
 
           {/* Motivation / Why card */}
           {profile?.motivation_why && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
               className="card mx-4 mb-3"
-              style={{ background: 'linear-gradient(135deg, #0b1430, #13131f)', borderColor: 'rgba(59,91,255,0.2)' }}
-            >
+              style={{ background: 'linear-gradient(135deg, #0b1430, #13131f)', borderColor: 'rgba(59,91,255,0.2)' }}>
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Your why</p>
-              <p className="text-sm text-gray-400 italic leading-relaxed">
-                "{profile.motivation_why}"
-              </p>
+              <p className="text-sm text-gray-400 italic leading-relaxed">"{profile.motivation_why}"</p>
             </motion.div>
           )}
 
           {/* Avatar */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="card mx-4 mb-3 flex items-center gap-4"
-          >
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+            className="card mx-4 mb-3 flex items-center gap-4">
             <div className="flex-shrink-0">
-              {profile?.gender === 'female'
-                ? <FemaleAvatar stage={stage.stage} size={64} animated />
-                : <MaleAvatar stage={stage.stage} size={64} animated />}
+              {profile?.gender === 'female' ? <FemaleAvatar stage={stage.stage} size={64} animated /> : <MaleAvatar stage={stage.stage} size={64} animated />}
             </div>
             <div>
               <p className="font-bold dark:text-white">{stage.name}</p>
-              <p className="text-xs text-gray-400 mt-1">
-                {profile?.total_steps ? formatSteps(profile.total_steps) : '0'} total steps
-              </p>
+              <p className="text-xs text-gray-400 mt-1">{profile?.total_steps ? formatSteps(profile.total_steps) : '0'} total steps</p>
               <p className="text-xs text-cobalt-400 mt-1">Keep stepping to level up →</p>
             </div>
           </motion.div>
@@ -261,20 +215,21 @@ export default function DashboardPage() {
         <div className="px-4 pt-12">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-black dark:text-white">Leaderboard</h1>
-            {isAdmin && (
-              <button
-                onClick={() => router.push('/admin')}
+            <div className="flex items-center gap-2">
+              <button onClick={handleSignOut}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold"
-                style={{
-                  background: 'rgba(59,91,255,0.15)',
-                  border: '1px solid rgba(59,91,255,0.35)',
-                  color: '#7c9dff',
-                }}
-              >
-                <Settings className="w-3.5 h-3.5" />
-                Admin
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#9ca3af' }}>
+                <LogOut className="w-3.5 h-3.5" />
               </button>
-            )}
+              {isAdmin && (
+                <button onClick={() => router.push('/admin')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold"
+                  style={{ background: 'rgba(59,91,255,0.15)', border: '1px solid rgba(59,91,255,0.35)', color: '#7c9dff' }}>
+                  <Settings className="w-3.5 h-3.5" />
+                  Admin
+                </button>
+              )}
+            </div>
           </div>
           <Leaderboard currentUserId={user?.id} showFilters={true} />
         </div>
