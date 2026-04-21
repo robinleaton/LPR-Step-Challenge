@@ -318,7 +318,7 @@ export default function SubmitPage() {
               <div className="space-y-4">
                 <div className="card space-y-4">
                   <h2 className="font-bold dark:text-white">📸 Upload Your Step Photo</h2>
-                  <input ref={fileRef} type="file" accept="image/*" capture="environment"
+                  <input ref={fileRef} type="file" accept="image/*"
                     className="hidden" onChange={handlePhotoSelect} />
                   {!preview ? (
                     <button onClick={() => fileRef.current?.click()}
